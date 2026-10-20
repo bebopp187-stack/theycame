@@ -133,7 +133,7 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 .mi:disabled{cursor:wait;color:#a99fb5}
 .mi:focus-visible{outline:none}
 .tc-desc{margin:0;max-width:40ch;min-height:2.8em;font:500 15px/1.45 var(--body);color:#d6cde0;text-shadow:0 1px 6px rgba(0,0,0,.8)}
-.tc-panel{position:absolute;left:calc(max(3.6vw,16px) + min(450px,36vw) + 3vw);bottom:calc(var(--bar) + 14px);width:min(430px,38vw);max-height:calc(100% - var(--bar) - 40px);overflow:auto;display:grid;gap:8px;padding:18px 18px 16px;background:linear-gradient(180deg,rgba(18,9,28,.86),rgba(12,6,20,.9));border-top:3px solid var(--pink);box-shadow:0 18px 50px rgba(0,0,0,.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.tc-panel{position:absolute;left:calc(max(3.6vw,16px) + min(450px,36vw) + 3vw);bottom:calc(var(--bar) + 14px);width:min(430px,38vw);max-height:calc(100% - var(--bar) - 40px);overflow:auto;display:grid;gap:8px;padding:18px 18px 16px;background:linear-gradient(180deg,rgba(18,9,28,.7),rgba(12,6,20,.78));border-top:3px solid var(--pink);box-shadow:0 18px 50px rgba(0,0,0,.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 .tc-panel h2{margin:0 0 6px;font:800 24px/1 var(--cond);text-transform:uppercase;letter-spacing:.06em;color:#fff}
 .opt{appearance:none;border:0;display:grid;gap:3px;text-align:left;padding:11px 14px;background:rgba(255,255,255,.04);color:#e8e1ef;cursor:pointer;font-family:var(--cond)}
 .opt b{font:800 21px/1 var(--cond);text-transform:uppercase;letter-spacing:.02em}
@@ -216,6 +216,15 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
   .tc-logo{max-height:32vh;width:84vw;max-width:440px}
   .mi{height:45px;font-size:25px}
   .tc-desc{font-size:14px}
+  .tc.sub .tc-logo{visibility:hidden}
+  .tc-panel{max-height:52%;padding:12px 14px;gap:6px;background:linear-gradient(180deg,rgba(18,9,28,.55),rgba(12,6,20,.72))}
+  .tc-panel h2{font-size:22px}
+  .crews{gap:5px}
+  .crew{padding:7px 12px;background:rgba(10,5,18,.45)}
+  .crew b{font-size:19px}
+  .crew .d{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .crew .sw i{height:24px}
+  .opt{padding:8px 12px}.opt b{font-size:18px}.opt small{font-size:12.5px}
 }
 @media (max-height:500px){
   :root{--bar:52px}
@@ -318,10 +327,10 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
       </g>
     </svg>
     <nav class="tc-list" id="mList" aria-label="Main menu">
+      <button class="mi" data-sub="subCrew" data-desc="Pick who you roll with. Your crew decides which part of town you defend."><span>Crew</span><i></i></button>
       <button class="mi sel" id="play" data-desc="Hold your block against wave after wave. The mothership comes down on wave 5." disabled><span id="playLbl">Loading the block…</span><i></i></button>
       <button class="mi" id="miConvoy" data-desc="Supply run: drive the 6x6 anywhere in the city and get medical, ammo and weapons to crews holding out. The turret still fires." disabled><span>Convoy</span><i></i></button>
       <button class="mi" data-sub="subCoop" data-desc="Fight the invasion together: host your block or jump into a friend’s game. Up to 4 players."><span>Co-op</span><i></i></button>
-      <button class="mi" data-sub="subCrew" data-desc="Pick who you roll with. Your crew decides which part of town you defend."><span>Crew</span><i></i></button>
       <button class="mi" data-sub="subBoard" data-desc="The best runs from everyone who plays, for Hold the Block and the Convoy."><span>Leaderboard</span><i></i></button>
       <button class="mi" data-sub="subAch" data-desc="Milestones for the block, the convoy and co-op."><span>Achievements</span><i></i></button>
       <button class="mi" data-sub="subSettings" data-desc="Look speed, music volume, time of day and aim assist."><span>Settings</span><i></i></button>
@@ -4042,7 +4051,7 @@ function hurt(dmg, dir) {
   if (P.hp <= 0) { P.hp = 0; die(); }
 }
 let sprFov = 0;
-const MENU_CAM = { th: .96, back: 4.2, side: -1.5, h: 1.05, fov: 46, up: 12, look: -3, backC: 3.2, sideC: -.8, hC: 1.4, fovC: 38, upC: 1.45, lookC: -2.3, turn: -.32, k: 0, port: { backC: 3.4, sideC: 0, hC: 1.2, fovC: 52, upC: .1, lookC: 0 } };
+const MENU_CAM = { th: .96, back: 4.2, side: -1.5, h: 1.05, fov: 46, up: 12, look: -3, backC: 3.2, sideC: -.8, hC: 1.4, fovC: 38, upC: 1.45, lookC: -2.3, turn: -.32, k: 0, port: { backC: 3.9, sideC: 0, hC: 1.3, fovC: 52, upC: -.2, lookC: 0 } };
 function updateCamera(dt) {
   const aiming = state === 'play' && (inp.aim || inp.aimToggle);
   aimT = damp(aimT, aiming ? 1 : 0, 14, dt);
