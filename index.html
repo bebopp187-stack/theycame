@@ -3653,9 +3653,36 @@ function cityR(id) {
 function cityDropPeer(id) {
   const R = CITY.others.get(id); if (!R) return;
   mpDropAvatar(R); if (R.truck) { scene.remove(R.truck.g); R.truck = null; }
-  for (const [k, a] of CITY.ents) if (a.owner === id) { mpRemoveEnt(a); CITY.ents.delete(k); }
   CITY.others.delete(id);
+  cityOrphan(id);
 }
+// The game running these aliens went quiet (left, closed, or put in the background): whoever is closest to each
+// one takes it over, so nothing is left frozen and unkillable. Everyone else drops their mirror and will see the
+// new owner's copy a moment later.
+function cityOrphan(owner) {
+  const mine = driving ? van.pos : P.pos;
+  const others = [...CITY.others.values()].filter(R => R.peer !== owner && cityFresh(R) && !(R.raw && R.raw.away) && R.have);
+  for (const [k, a] of CITY.ents) {
+    if (a.owner !== owner) continue;
+    CITY.ents.delete(k);
+    const p = a.g.position, dMe = Math.hypot(p.x - mine.x, p.z - mine.z);
+    const closer = others.some(R => Math.hypot(p.x - R.pos.x, p.z - R.pos.z) < dMe - 1);
+    if (closer || state !== 'play' && state !== 'paused') { mpRemoveEnt(a); continue; }
+    a.net = false; a.owner = null; a.nid = ++MP.nid; a.t = 0; a.tgtT = 0; a.flash = 0;
+    if (a.ent === 'd') { a.vel.set(0, 0, 0); a.fireT = rr(1, 2.5); a.tgtR = null; }
+    else { a.state = a.kind === 'merc' ? 'move' : 'run'; a.goal = null; a.stuckT = 0; a.atkCd = .6; a.vel.set(0, 0, 0); a.y = a.g.position.y; a.lastPos.copy(a.g.position); }
+  }
+}
+// putting the game in the background hands our aliens to the players still here
+document.addEventListener('visibilitychange', () => {
+  if (!CITY.on || !CITY.room) return;
+  if (document.hidden) {
+    CITY.room.presence({ away: 1, w: cityWorld() }).catch(() => {});
+    for (const a of aliens.slice()) if (!a.net) mpRemoveEnt(a);
+    for (const d of drones.slice()) if (!d.net) { d.ent = 'd'; mpRemoveEnt(d); }
+    for (const dr of drops) dr.payload.length = 0;
+  } else CITY.room.presence({ away: null }).catch(() => {});
+});
 function cityJoinRoom() {
   if (CITY.room || CITY.joining || !MP.api || REC.db) return Promise.resolve(CITY.room);
   CITY.joining = MP.api.join('tc-city').then(room => {
@@ -3744,7 +3771,7 @@ function cityWorld() {
   }
   for (const d of drones) { if (d.net || D.length >= 8) continue; const p = d.g.position; D.push([d.nid, q10(p.x), q10(p.y), q10(p.z)]); }
   while (MP.killed.length && time - MP.killed[0][1] > 3) MP.killed.shift();
-  return { A, D, K: MP.killed.map(k => k[0]), cx: q10(me.x), cz: q10(me.z) };
+  return { s: CITY.wseq = (CITY.wseq || 0) + 1, A, D, K: MP.killed.map(k => k[0]), cx: q10(me.x), cz: q10(me.z) };
 }
 function cityWrite() {
   const p = cityMeP();
@@ -3802,8 +3829,9 @@ function cityRead(R) {
     }
   }
   // its aliens: mirror the ones near us
-  const w = pr.w; if (!w || typeof w !== 'object' || w === R.lastW) return;
-  R.lastW = w;
+  // a resent copy of the same snapshot (keep-alives) is not news: only a new sequence number counts
+  const w = pr.w; if (!w || typeof w !== 'object' || w === R.lastW || (w.s !== undefined && w.s === R.lastWs)) return;
+  R.lastW = w; R.lastWs = w.s; R.wAt = time; R.orphaned = false;
   const K = new Set(Array.isArray(w.K) ? w.K : []), seen = new Set();
   const near = (x, z) => Math.hypot(x - mine.x, z - mine.z) < CITY_SEE;
   if (Array.isArray(w.A)) for (const e of w.A) {
@@ -3876,6 +3904,8 @@ function cityTick(dt) {
   const now = performance.now(), mine = driving ? van.pos : P.pos;
   for (const R of CITY.others.values()) {
     cityRead(R);
+    // its game stopped sending: away in the background, or stalled for several seconds
+    if (!R.orphaned && (R.raw && R.raw.away === 1 || R.wAt && time - R.wAt > 6)) { R.orphaned = true; cityOrphan(R.peer); }
     if (!cityFresh(R)) { if (R.av) R.av.g.visible = false; if (R.label) R.label.visible = false; if (R.truck) R.truck.g.visible = false; R.tgt.alive = false; continue; }
     const p = R.data.p;
     if (p.v === 1) { cityTruck(R, dt); }
