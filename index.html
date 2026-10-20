@@ -332,11 +332,12 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
   <section class="tc-panel" id="subCoop" hidden>
     <h2>Co-op</h2>
     <p class="hint" id="coopStatus">Connecting…</p>
-    <button class="opt" id="coopCity"><b>Open city</b><small>Drop in anytime. Endless aliens; everyone else in the city shows up as a white dot on your map.</small></button>
-    <button class="opt" id="coopQuick" disabled><b>Quick play</b><small>Jump straight into a game. If nobody’s playing yet, one starts and friends land in it.</small></button>
-    <button class="opt" id="coopHost" disabled><b>Host a game</b><small>Get a code to give friends. Up to 3 can join.</small></button>
-    <div class="coop-games" id="coopGames"></div>
-    <form class="coop-code" id="coopCodeForm" autocomplete="off"><input id="coopCode" maxlength="6" placeholder="Game code" aria-label="Game code" spellcheck="false" autocapitalize="characters"><button class="opt" id="coopCodeBtn" type="submit"><b>Join</b></button></form>
+    <button class="opt" id="coopCity"><b>Open city · On foot</b><small>Drop in anytime. Everyone in the city fights the same endless invasion. Other players are white dots on your map.</small></button>
+    <button class="opt" id="coopCityTruck"><b>Open city · Convoy</b><small>Roll a supply truck through the same city. Up to 15 convoys at once; pull up next to players on foot to restock them.</small></button>
+    <button class="opt" id="coopQuick" disabled><b>Quick play</b><small>Wave mode with whoever’s on: hold the block together through the waves and the mothership.</small></button>
+    <button class="opt" id="coopHost" disabled hidden><b>Host a game</b><small>Get a code to give friends. Up to 3 can join.</small></button>
+    <div class="coop-games" id="coopGames" hidden></div>
+    <form class="coop-code" id="coopCodeForm" autocomplete="off" hidden><input id="coopCode" maxlength="6" placeholder="Game code" aria-label="Game code" spellcheck="false" autocapitalize="characters"><button class="opt" id="coopCodeBtn" type="submit"><b>Join</b></button></form>
     <p class="hint coop-online" id="coopOnline"></p>
     <p class="hint coop-online" id="coopDiag"></p>
     <button class="opt back"><b>Back</b></button>
@@ -1973,7 +1974,7 @@ function spawnDrone() {
   drones.push({ nid: ++MP.nid, g, ring, body, coreMat, hp: 3 + Math.floor(wave / 3), vel: new V3(), ang: Math.random() * 6.28, orbit: rr(11, 19), alt: rr(3.5, 7.5), fireT: rr(2, 3.5), flash: 0, t: Math.random() * 10, strafe: Math.random() < .5 ? 1 : -1 });
 }
 function killDrone(d, i) {
-  mpKilled(d.nid); achKill('drone');
+  mpKilled(d.net ? 0 : d.nid); achKill('drone');
   explode(d.g.position.clone());
   scene.remove(d.g); d.coreMat.dispose(); drones.splice(i, 1);
   score += 100 * Math.max(1, wave); kills++;
@@ -1986,6 +1987,7 @@ function updateDrones(dt) {
   chest.copy(P.pos); chest.y += 1.3;
   for (let i = drones.length - 1; i >= 0; i--) {
     const d = drones[i], p = d.g.position;
+    if (d.net) continue;
     // co-op: each drone picks the nearest living player now and then
     d.tgtT = (d.tgtT || 0) - dt;
     if (d.tgtT <= 0) { d.tgtT = rr(1.5, 3); let best = null, bd = P.down > 0 ? Infinity : p.distanceTo(P.pos); for (const T of mpTargets()) { const dd = p.distanceTo(T.pos); if (dd < bd) { bd = dd; best = T; } } d.tgtR = best; }
@@ -2113,7 +2115,7 @@ function targets() { return drones.concat(gens, aliens.filter(a => a.state !== '
 function killAlien(a, roadkill) {
   if (a.rig) { killRigged(a); return; }
   const i = aliens.indexOf(a); if (i < 0) return;
-  mpKilled(a.nid); achKill(a.brute ? 'brute' : 'bug', roadkill);
+  mpKilled(a.net ? 0 : a.nid); achKill(a.brute ? 'brute' : 'bug', roadkill);
   burst(a.aim, a.brute ? 50 : 24, '#d35cff', a.brute ? 8 : 6, .7, 2.5);
   if (a.brute) explode(a.aim.clone()); else sfxSquish(a.aim.distanceTo(P.pos));
   scene.remove(a.g); a.coreMat.dispose(); aliens.splice(i, 1);
@@ -2140,6 +2142,7 @@ function updateAliens(dt) {
   const fx = driving ? -Math.sin(van.yaw) : 0, fz = driving ? -Math.cos(van.yaw) : 0, rx = -fz, rz = fx;
   for (let i = aliens.length - 1; i >= 0; i--) {
     const a = aliens[i], p = a.g.position;
+    if (a.net) continue;
     a.tgtT = (a.tgtT || 0) - dt; if (a.tgtT <= 0) { a.tgtT = rr(.6, 1.2); alienPickTarget(a); }
     if (a.kind === 'merc') { updateMerc(a, dt); continue; }
     a.t += dt; a.flash = Math.max(0, a.flash - dt * 6); a.atkCd -= dt; a.vanCd -= dt;
@@ -2361,7 +2364,7 @@ function updateMerc(a, dt) {
 const corpses = [];
 function killRigged(a) {
   const i = aliens.indexOf(a); if (i < 0) return;
-  mpKilled(a.nid); achKill(a.kind);
+  mpKilled(a.net ? 0 : a.nid); achKill(a.kind);
   aliens.splice(i, 1);
   burst(a.aim, 26, a.kind === 'merc' ? '#c69bff' : '#d35cff', 6, .7, 2.5); sfxSquish(a.aim.distanceTo(P.pos));
   for (const m of a.rig.mats) m.emissive.setRGB(0, 0, 0);
@@ -2783,8 +2786,9 @@ function updateTruckBeam(dt, firing) {
   // damage everything within reach of the line
   const segL = _tbA.distanceTo(_tbB), dir = _tbB.clone().sub(_tbA).divideScalar(segL || 1);
   const near = (p, r) => { const v = p.clone().sub(_tbA), t = clamp(v.dot(dir), 0, segL); return v.addScaledVector(dir, -t).length() < r; };
-  for (const a of aliens.slice()) if (a.state !== 'burrow' && near(a.aim, 1.4)) { a.hp -= dt * 14; a.flash = 1; if (a.hp <= 0) killAlien(a, false); }
-  for (const d of drones.slice()) if (near(d.g.position, 1.6)) { d.hp -= dt * 10; d.flash = 1; if (d.hp <= 0) killDrone(d, drones.indexOf(d)); }
+  const beamNet = (e, rate) => { e.flash = 1; e.beamAcc = (e.beamAcc || 0) + dt * rate; if (e.beamAcc >= 1) { netHit(e, Math.floor(e.beamAcc)); e.beamAcc %= 1; } };
+  for (const a of aliens.slice()) if (a.state !== 'burrow' && near(a.aim, 1.4)) { if (a.net) { beamNet(a, 14); continue; } a.hp -= dt * 14; a.flash = 1; if (a.hp <= 0) killAlien(a, false); }
+  for (const d of drones.slice()) if (near(d.g.position, 1.6)) { if (d.net) { beamNet(d, 10); continue; } d.hp -= dt * 10; d.flash = 1; if (d.hp <= 0) killDrone(d, drones.indexOf(d)); }
   for (const b of bossParts()) if (near(b.aim, b.r + .5)) { b.beamAcc = (b.beamAcc || 0) + dt * 10; while (b.beamAcc >= 1) { b.beamAcc--; bossHit(b, b.aim.clone(), 1); } }
   for (const e of DEST.list) if (e.state === 'up' && Math.hypot(e.cx - _tbB.x, e.cz - _tbB.z) < 7 && _tbB.y > .5) { e.beamT = (e.beamT || 0) + dt; if (e.beamT > .8) { e.beamT = 0; damageBuilding(e, _tbB.x, _tbB.y, _tbB.z); } }
   forShapes(_tbB.x - 2, _tbB.z - 2, _tbB.x + 2, _tbB.z + 2, s => { if (s.car && !s.car.gone) smashCar(s.car, dir, 14); });
@@ -3229,13 +3233,13 @@ function mpShot(hp) { if (!MP.on && !CITY.on) return; MP.fired++; MP.hitP[0] = h
 function mpHit(id, dmg) { MP.hits.push([++MP.hitSeq, id, Math.round(dmg * 10) / 10]); if (MP.hits.length > 24) MP.hits.shift(); }
 function mpDamage(R, dmg) { MP.dmg.push([++MP.dmgSeq, R.peer, Math.round(dmg * 10) / 10]); if (MP.dmg.length > 20) MP.dmg.shift(); }
 function mpBolt(m, v, kind) {
-  if (!MP.host) return;
+  if (!MP.host && !CITY.room) return;
   const p = m.position; MP.shots.push([++MP.shotSeq, q10(p.x), q10(p.y), q10(p.z), q10(v.x), q10(v.y), q10(v.z), kind]);
   if (MP.shots.length > 14) MP.shots.shift();
 }
-function mpKilled(nid) { if (MP.host && nid) { MP.killed.push([nid, time]); if (MP.killed.length > 40) MP.killed.shift(); } }
+function mpKilled(nid) { if ((MP.host || CITY.room) && nid) { MP.killed.push([nid, time]); if (MP.killed.length > 40) MP.killed.shift(); } }
 // the nearest living player to a point, for alien brains on the host
-function mpTargets() { const out = []; if (MP.host) for (const R of MP.peers.values()) if (R.tgt.alive) out.push(R.tgt); return out; }
+function mpTargets() { const out = []; if (MP.host) for (const R of MP.peers.values()) if (R.tgt.alive) out.push(R.tgt); if (CITY.room) for (const R of CITY.others.values()) if (R.tgt.alive && cityFresh(R)) out.push(R.tgt); return out; }
 function mpRandTarget() {
   const list = mpTargets(); if (P.down <= 0) list.push({ pos: P.pos, vel: P.vel, me: true });
   return list.length ? pick(list) : { pos: P.pos, vel: P.vel, me: true };
@@ -3257,9 +3261,9 @@ function mpHostIn() {
 function mpApplyHit(id, dmg) {
   if (!dmg || state !== 'play' && state !== 'paused') return;
   if (typeof id === 'number') {
-    const a = aliens.find(x => x.nid === id);
+    const a = aliens.find(x => x.nid === id && !x.net);
     if (a) { a.hp -= dmg; a.flash = 1; if (a.hp <= 0) killAlien(a, false); return; }
-    const i = drones.findIndex(d => d.nid === id);
+    const i = drones.findIndex(d => d.nid === id && !d.net);
     if (i >= 0) { const d = drones[i]; d.hp -= dmg; d.flash = 1; if (d.hp <= 0) killDrone(d, i); }
   } else if (typeof id === 'string' && /^b[0-9]$/.test(id)) {
     const b = BOSS.pods.concat([BOSS.core])[+id[1]];
@@ -3377,8 +3381,8 @@ function mpClientBoss(B) {
   if (B.dy && BOSS.active) bossDefeated();
 }
 // mirror the host's aliens between snapshots
-function mpClientAnim(dt) {
-  updateBeams(dt);
+function mpClientAnim(dt, noBeams) {
+  if (!noBeams) updateBeams(dt);
   for (const a of aliens) {
     if (!a.net) continue;
     const p = a.g.position, ox = p.x, oz = p.z;
@@ -3606,12 +3610,15 @@ async function recRenderBoard() {
   });
 }
 
-/* ================= open city: drop-in sandbox; other players come through the shared store ================= */
-// No waves, no host: everyone runs their own endless invasion. Each player's page writes where they are to the
-// artifact's shared store every couple of seconds, and reads everyone else's: they show as white dots on the map,
-// and as their hero, gliding between updates, when they're close enough to see.
-const CITY = { on: false, id: null, unsub: null, others: new Map(), wT: 0, lastW: 0, lastP: null, writing: false, spawnT: 2, t: 0, err: '' };
-const CITY_FRESH = 40000;
+/* ================= open city: drop-in sandbox for strangers, on foot or in a convoy ================= */
+// No host. Every player's game runs the aliens that spawn around it and shares them with everyone in the city;
+// everyone else shows those aliens as mirrors and sends their hits back to whoever runs them. When a player
+// leaves, only the aliens their game was running go with them. Up to 15 players can roll as convoys; a convoy
+// that pulls up next to someone on foot drops them supplies. On claude.ai (no live link) the city falls back to
+// the shared store: you see each other, but each game fights its own aliens.
+const CITY = { on: false, role: 'foot', id: null, unsub: null, room: null, others: new Map(), ents: new Map(), wT: 0, worldT: 0, lastW: 0, lastP: null, writing: false,
+  spawnT: 2, t: 0, err: '', hits: [], hitSeq: 0, gifts: [], giftSeq: 0, killed: [] };
+const CITY_FRESH = 40000, CITY_CONVOYS = 15, CITY_SEE = 230;
 function cityId() {
   let id = null; try { id = sessionStorage.getItem('tc-city-id'); } catch (e) {}
   if (!id || !/^p[a-z0-9]{6,12}$/.test(id)) { id = 'p' + Math.random().toString(36).slice(2, 10).replace(/[^a-z0-9]/g, 'x'); try { sessionStorage.setItem('tc-city-id', id); } catch (e) {} }
@@ -3619,28 +3626,39 @@ function cityId() {
 }
 function cityR(id) {
   let R = CITY.others.get(id);
-  if (!R) { R = { peer: id, pres: null, data: null, rx: 0, av: null, crew: null, label: null, st: { bodyYaw: 0, vel: new V3(), ground: true, reload: 0, pitch: 0 }, pos: new V3(), have: false,
-    tgt: { pos: new V3(), aim: new V3(), vel: new V3(), alive: false, remote: true }, lastHit: -1, f: -1, swT: 0, dead: false }; R.tgt.R = R; CITY.others.set(id, R); }
+  if (!R) { R = { peer: id, pres: null, data: null, raw: null, seenRaw: null, rx: 0, av: null, crew: null, label: null, truck: null, st: { bodyYaw: 0, vel: new V3(), ground: true, reload: 0, pitch: 0 }, pos: new V3(), have: false,
+    tgt: { pos: new V3(), aim: new V3(), vel: new V3(), alive: false, remote: true }, lastHit: -1, lastDm: -1, lastSh: -1, lastGift: -1, f: -1, swT: 0, dead: false, giftT: 0, lastW: null }; R.tgt.R = R; CITY.others.set(id, R); }
   return R;
 }
+function cityDropPeer(id) {
+  const R = CITY.others.get(id); if (!R) return;
+  mpDropAvatar(R); if (R.truck) { scene.remove(R.truck.g); R.truck = null; }
+  for (const [k, a] of CITY.ents) if (a.owner === id) { mpRemoveEnt(a); CITY.ents.delete(k); }
+  CITY.others.delete(id);
+}
+function cityJoinRoom() {
+  if (CITY.room || CITY.joining || !MP.api || REC.db) return Promise.resolve(CITY.room);
+  CITY.joining = MP.api.join('tc-city').then(room => {
+    CITY.joining = null;
+    if (!CITY.on && !CITY.pending) { room.leave(); return null; }
+    CITY.room = room;
+    room.onPeers(ch => {
+      if (MP.myPeer == null) { const me = ch.peers.find(p => p.sameTab); if (me) CITY.me = me.peer; }
+      const seen = new Set();
+      for (const p of ch.peers) {
+        if (p.sameTab) { CITY.me = p.peer; continue; }
+        if (!p.presence || !p.presence.p || typeof p.presence.p !== 'object') continue;
+        seen.add(p.peer); const R = cityR(p.peer);
+        if (R.raw !== p.presence) { R.raw = p.presence; R.data = { p: p.presence.p, ts: Date.now() }; R.rx = performance.now(); }
+      }
+      for (const id of [...CITY.others.keys()]) if (!seen.has(id)) cityDropPeer(id);
+    });
+    return room;
+  }).catch(() => { CITY.joining = null; return null; });
+  return CITY.joining;
+}
 function citySubscribe() {
-  if (!REC.db && MP.api && !CITY.room) {
-    // live: everyone in the city room sees everyone else ten times a second
-    MP.api.join('tc-city').then(room => {
-      if (!CITY.on) { room.leave(); return; }
-      CITY.room = room;
-      room.onPeers(ch => {
-        const seen = new Set();
-        for (const p of ch.peers) {
-          if (p.sameTab || !p.presence || !p.presence.p || typeof p.presence.p !== 'object') continue;
-          seen.add(p.peer); const R = cityR(p.peer);
-          if (!R.data || R.data.raw !== p.presence) { R.data = { p: p.presence.p, ts: Date.now(), raw: p.presence }; R.rx = performance.now(); }
-        }
-        for (const [id, R] of CITY.others) if (!seen.has(id)) { mpDropAvatar(R); CITY.others.delete(id); }
-      });
-    }).catch(() => {});
-    return;
-  }
+  if (!REC.db && MP.api) { cityJoinRoom(); return; }
   if (!REC.db || CITY.unsub) return;
   CITY.unsub = REC.db.collection('live').limit(80).onSnapshot(snap => {
     const seen = new Set();
@@ -3650,33 +3668,73 @@ function citySubscribe() {
       seen.add(d.id); const R = cityR(d.id);
       if (R.data !== v) { R.data = v; R.rx = performance.now(); }
     }
-    for (const [id, R] of CITY.others) if (!seen.has(id)) { mpDropAvatar(R); CITY.others.delete(id); }
+    for (const id of [...CITY.others.keys()]) if (!seen.has(id)) cityDropPeer(id);
   }, e => { CITY.err = (e && e.code) || 'unavailable'; CITY.unsub = null; });
 }
-function cityStart() {
+const cityConvoys = () => [...CITY.others.values()].filter(R => cityFresh(R) && R.data.p.v === 1).length;
+async function cityStart(role = 'foot') {
   if (MP.on) mpLeave();
-  Object.assign(CITY, { on: true, id: cityId(), t: 0, spawnT: 3, wT: 0, lastW: 0, lastP: null });
+  if (CITY.on) cityStop();
+  CITY.pending = true;
+  // a convoy slot is only free when fewer than 15 are already rolling
+  if (role === 'convoy' && MP.api && !REC.db) {
+    banner('Open city', 'Checking for a free convoy slot…');
+    await cityJoinRoom(); await new Promise(r => setTimeout(r, 1800));
+    if (cityConvoys() >= CITY_CONVOYS) { role = 'foot'; setTimeout(() => banner('All 15 convoys are rolling', 'You’re in on foot. Try the convoy again later'), 300); }
+  }
+  CITY.pending = false;
+  Object.assign(CITY, { on: true, role, id: cityId(), t: 0, spawnT: 3, wT: 0, worldT: 0, lastW: 0, lastP: null, hits: [], gifts: [], killed: [] });
   citySubscribe();
-  play('waves');
-  banner('Open city', REC.db || MP.api ? 'Other players show up as white dots on your map' : 'Playing solo: the shared city isn’t available on this page');
+  play(role === 'convoy' ? 'convoy' : 'waves');
+  if (role === 'convoy') banner('Open city · Convoy', 'Run supplies to the crews. Pull up next to players on foot to resupply them');
+  else banner('Open city', REC.db || MP.api ? 'Everyone in the city fights the same aliens. White dots on your map are other players' : 'Playing solo: the shared city isn’t available on this page');
 }
 function cityStop() {
   if (!CITY.on) return;
   CITY.on = false;
   if (REC.db && CITY.id) REC.db.collection('live').doc(CITY.id).delete().catch(() => {});
-  for (const R of CITY.others.values()) mpDropAvatar(R);
-  CITY.others.clear();
+  for (const id of [...CITY.others.keys()]) cityDropPeer(id);
+  for (const [, a] of CITY.ents) mpRemoveEnt(a);
+  CITY.ents.clear();
   if (CITY.unsub) { CITY.unsub(); CITY.unsub = null; }
   if (CITY.room) { CITY.room.leave(); CITY.room = null; }
 }
 addEventListener('pagehide', () => { if (CITY.on && REC.db && CITY.id) REC.db.collection('live').doc(CITY.id).delete().catch(() => {}); });
 const cityFresh = R => R.data && R.data.p && Math.abs(Date.now() - num(R.data.ts)) < CITY_FRESH;
 const cityCount = () => [...CITY.others.values()].filter(cityFresh).length;
-function cityWrite() {
+// a hit on an alien someone else's game is running goes to that game
+function cityHit(a, dmg) {
+  CITY.hits.push([++CITY.hitSeq, a.owner, a.nid, Math.round(dmg * 10) / 10]); if (CITY.hits.length > 30) CITY.hits.shift();
+}
+function netHit(a, dmg) { if (MP.client) mpHit(a.nid, dmg); else if (a.owner) cityHit(a, dmg); }
+function cityMeP() {
   const combat = inp.aim || inp.aimToggle || time - P.lastFire < .6;
   const p = { x: q10(P.pos.x) / 10, y: q10(P.pos.y) / 10, z: q10(P.pos.z) / 10, vx: q10(P.vel.x) / 10, vz: q10(P.vel.z) / 10, b: Math.round(P.bodyYaw * 100) / 100,
     pi: Math.round(P.pitch * 100) / 100, g: P.ground ? 1 : 0, c: combat ? 1 : 0, r: P.reload > 0 ? 1 : 0, k: crewKey, w: P.weapon === 'blaster' ? 1 : 0, d: P.down > 0 ? 1 : 0, hp: Math.ceil(P.hp) };
-  if (CITY.room) { Object.assign(p, { f: MP.fired, hx: q10(MP.hitP[0]) / 10, hy: q10(MP.hitP[1]) / 10, hz: q10(MP.hitP[2]) / 10 }); CITY.room.presence({ p }).catch(() => {}); return; }
+  if (driving) Object.assign(p, { v: 1, yaw: Math.round(van.yaw * 100) / 100, ty: Math.round(P.yaw * 100) / 100, sp: Math.round(van.speed * 10) / 10 });
+  return p;
+}
+// the aliens this game is running, for everyone else
+function cityWorld() {
+  const A = [], D = [], me = driving ? van.pos : P.pos;
+  for (const a of aliens) {
+    if (a.net || A.length >= 24) continue;
+    const k = a.kind === 'merc' ? 3 : a.kind === 'grunt' ? 2 : a.brute ? 1 : 0, p = a.g.position;
+    A.push([a.nid, k, q10(p.x), q10(p.z), q10(a.y), Math.round(a.g.rotation.y * 100), MP_ST[a.state] || 0]);
+  }
+  for (const d of drones) { if (d.net || D.length >= 8) continue; const p = d.g.position; D.push([d.nid, q10(p.x), q10(p.y), q10(p.z)]); }
+  while (MP.killed.length && time - MP.killed[0][1] > 3) MP.killed.shift();
+  return { A, D, K: MP.killed.map(k => k[0]), cx: q10(me.x), cz: q10(me.z) };
+}
+function cityWrite() {
+  const p = cityMeP();
+  if (CITY.room) {
+    Object.assign(p, { f: MP.fired, hx: q10(MP.hitP[0]) / 10, hy: q10(MP.hitP[1]) / 10, hz: q10(MP.hitP[2]) / 10 });
+    const patch = { p, h: CITY.hits, g: CITY.gifts, dm: MP.dmg, sh: MP.shots };
+    if (CITY.worldT <= 0) { CITY.worldT = .12; patch.w = cityWorld(); }
+    CITY.room.presence(patch).catch(() => {});
+    return;
+  }
   if (!REC.db || CITY.writing || REC.canWrite === false) return;
   const moved = !CITY.lastP || Math.hypot(p.x - CITY.lastP.x, p.z - CITY.lastP.z) > .4 || p.d !== CITY.lastP.d || p.c !== CITY.lastP.c || p.k !== CITY.lastP.k;
   if (!moved && Date.now() - CITY.lastW < 8000) return;
@@ -3685,23 +3743,149 @@ function cityWrite() {
     .catch(e => { CITY.err = (e && e.code) || 'write'; if (e && e.code === 'invalid_argument') REC.canWrite = false; })
     .finally(() => { CITY.writing = false; });
 }
+// what another player's game says: its aliens, the hits and damage meant for us, its bolts, supplies for us
+function cityRead(R) {
+  const pr = R.raw; if (!pr || pr === R.seenRaw) return;
+  R.seenRaw = pr;
+  const me = CITY.me;
+  // hits on aliens this game runs
+  if (Array.isArray(pr.h)) {
+    if (R.lastHit < 0) R.lastHit = pr.h.reduce((m, e) => Math.max(m, num(e && e[0])), 0);
+    MP.quiet = true;
+    for (const e of pr.h) { if (!Array.isArray(e) || !(num(e[0]) > R.lastHit)) continue; R.lastHit = e[0]; if (e[1] === me) mpApplyHit(num(e[2]), clamp(num(e[3]), 0, 40)); }
+    MP.quiet = false;
+  }
+  // damage its aliens did to us
+  if (Array.isArray(pr.dm)) {
+    if (R.lastDm < 0) R.lastDm = pr.dm.reduce((m, e) => Math.max(m, num(e && e[0])), 0);
+    for (const e of pr.dm) { if (!Array.isArray(e) || !(num(e[0]) > R.lastDm)) continue; R.lastDm = e[0]; if (e[1] === me && state === 'play') hurt(clamp(num(e[2]), 0, 40), new V3(rr(-1, 1), 0, rr(-1, 1))); }
+  }
+  // supplies a convoy dropped for us
+  if (Array.isArray(pr.g)) {
+    if (R.lastGift < 0) R.lastGift = pr.g.reduce((m, e) => Math.max(m, num(e && e[0])), 0);
+    for (const e of pr.g) {
+      if (!Array.isArray(e) || !(num(e[0]) > R.lastGift)) continue; R.lastGift = e[0];
+      if (e[1] === me && LOOT[e[2]] && e[2] !== 'beam') { collectLoot(e[2]); if (e[2] !== 'blaster') collectLoot(e[2] === 'health' ? 'ammo' : 'health'); banner('Convoy drop', 'A passing convoy restocked you'); }
+    }
+  }
+  const mine = driving ? van.pos : P.pos;
+  // its bolts, when they're near enough to matter
+  if (Array.isArray(pr.sh)) {
+    if (R.lastSh < 0) R.lastSh = pr.sh.reduce((m, e) => Math.max(m, num(e && e[0])), 0);
+    for (const e of pr.sh) {
+      if (!Array.isArray(e) || !(num(e[0]) > R.lastSh)) continue; R.lastSh = e[0];
+      const x = num(e[1]) / 10, y = num(e[2]) / 10, z = num(e[3]) / 10; if (!inWorld(x, z) || Math.hypot(x - mine.x, z - mine.z) > 160) continue;
+      const v = new V3(num(e[4]), num(e[5]), num(e[6])).divideScalar(10); if (v.length() > 80) continue;
+      const kd = e[7] | 0, b = new THREE.Mesh(boltGeo, kd === 0 ? boltMat : mercBoltMat); b.position.set(x, y, z);
+      b.lookAt(b.position.clone().add(v)); b.scale.set(1, 1, kd === 1 ? 3 : 2.6); scene.add(b); bolts.push({ m: b, v, life: 4, vis: true });
+      const d = b.position.distanceTo(camera.position); if (kd === 0) sfxPlasma(d); else sfxBlaster(d);
+    }
+  }
+  // its aliens: mirror the ones near us
+  const w = pr.w; if (!w || typeof w !== 'object' || w === R.lastW) return;
+  R.lastW = w;
+  const K = new Set(Array.isArray(w.K) ? w.K : []), seen = new Set();
+  const near = (x, z) => Math.hypot(x - mine.x, z - mine.z) < CITY_SEE;
+  if (Array.isArray(w.A)) for (const e of w.A) {
+    if (!Array.isArray(e)) continue;
+    const id = num(e[0]), k = clamp(num(e[1]) | 0, 0, 3), x = num(e[2]) / 10, z = num(e[3]) / 10;
+    if (!id || !inWorld(x, z) || !near(x, z)) continue;
+    const key = R.peer + ':' + id; seen.add(key);
+    let a = CITY.ents.get(key);
+    if (!a || !aliens.includes(a)) { a = spawnByKind(MP_KINDS[k], x, z); a.nid = id; a.net = true; a.owner = R.peer; a.ent = 'a'; CITY.ents.set(key, a); }
+    a.nx = x; a.nz = z; a.ny = num(e[4]) / 10; a.nry = num(e[5]) / 100; a.state = MP_STN[clamp(num(e[6]) | 0, 0, 6)];
+  }
+  if (Array.isArray(w.D)) for (const e of w.D) {
+    if (!Array.isArray(e)) continue;
+    const id = num(e[0]), x = num(e[1]) / 10, y = num(e[2]) / 10, z = num(e[3]) / 10;
+    if (!id || !inWorld(x, z) || !near(x, z)) continue;
+    const key = R.peer + ':' + id; seen.add(key);
+    let d = CITY.ents.get(key);
+    if (!d || !drones.includes(d)) { spawnDrone(); d = drones[drones.length - 1]; d.g.position.set(x, y, z); d.nid = id; d.net = true; d.owner = R.peer; d.ent = 'd'; CITY.ents.set(key, d); }
+    d.nx = x; d.ny = y; d.nz = z;
+  }
+  for (const [key, a] of CITY.ents) {
+    if (a.owner !== R.peer || seen.has(key)) continue;
+    CITY.ents.delete(key);
+    if (K.has(a.nid)) { if (a.ent === 'd') { const i = drones.indexOf(a); if (i >= 0) killDrone(a, i); } else if (aliens.includes(a)) killAlien(a, false); }
+    else mpRemoveEnt(a);
+  }
+}
+// someone else's convoy truck
+const _ctq = new V3();
+function cityTruck(R, dt) {
+  const p = R.data.p;
+  if (R.av) { R.av.g.visible = false; if (R.label) R.label.visible = false; }
+  if (!R.truck && MODELS.truck) { R.truck = makeTruck(); scene.add(R.truck.g); R.tlabel = R.label; }
+  if (!R.label) R.label = mpLabel(`${CREWS[CREWS[p.k] ? p.k : 'liberty'].name} convoy`, CREWS[CREWS[p.k] ? p.k : 'liberty'].jersey);
+  const e = Math.min((performance.now() - R.rx) / 1000, 1), yaw = num(p.yaw), sp = clamp(num(p.sp), -10, 30);
+  const tx = clamp(num(p.x) - Math.sin(yaw) * sp * e, WB.x0, WB.x1), tz = clamp(num(p.z) - Math.cos(yaw) * sp * e, WB.z0, WB.z1);
+  if (!R.have || Math.hypot(tx - R.pos.x, tz - R.pos.z) > 15) { R.pos.set(tx, 0, tz); R.have = true; R.tyaw = yaw; }
+  else { R.pos.x = damp(R.pos.x, tx, 8, dt); R.pos.z = damp(R.pos.z, tz, 8, dt); }
+  R.tyaw = dampAngle(R.tyaw ?? yaw, yaw, 8, dt);
+  if (R.truck) {
+    const T = R.truck; T.g.visible = R.pos.distanceTo(camera.position) < 300;
+    T.g.position.set(R.pos.x, 0, R.pos.z); T.g.rotation.y = R.tyaw + Math.PI / 2;
+    if (T.turret) T.turret.rotation.y = dampAngle(T.turret.rotation.y, num(p.ty) - yaw, 10, dt);
+    for (const w of T.spin) w.rotation.z -= sp * dt / (T.wheelR || .45);
+    // its turret firing
+    const f = num(p.f, -1);
+    if (R.f >= 0 && f > R.f && T.g.visible) {
+      T.muzzle.getWorldPosition(_ctq);
+      tracer(_ctq, new V3(num(p.hx, _ctq.x), num(p.hy, _ctq.y), num(p.hz, _ctq.z)), null);
+      if (sfxGate('mpshot', .06)) playSfx('shot2', { vol: .3, d: _ctq.distanceTo(camera.position), range: 150, rate: rr(.92, 1.05) });
+    }
+    R.f = f;
+  }
+  R.label.visible = true; R.label.position.set(R.pos.x, 4.6, R.pos.z);
+  R.tgt.pos.copy(R.pos); R.tgt.aim.set(R.pos.x, 1.6, R.pos.z); R.tgt.vel.set(-Math.sin(yaw) * sp, 0, -Math.cos(yaw) * sp); R.tgt.alive = p.d !== 1;
+}
 function cityTick(dt) {
   if (!CITY.on) return;
   if (P.down > 0 && state !== 'dead') {
     P.down -= dt;
-    if (P.down <= 0) { P.down = 0; P.hp = 100; P.lastHurt = -99; goHome(crewKey); setCrew(crewKey); setHeroWeapon(); banner('Back in it', ''); }
+    if (P.down <= 0) {
+      P.down = 0; P.hp = 100; P.lastHurt = -99;
+      if (driving) { const h = crewHome(crewKey); van.pos.set(h.x, 0, h.z); van.yaw = h.yaw; van.speed = 0; P.pos.copy(van.pos); recenterWorld(); }
+      else { goHome(crewKey); setCrew(crewKey); setHeroWeapon(); }
+      banner('Back in it', '');
+    }
   }
+  CITY.worldT -= dt;
   if (state === 'play' || state === 'paused') { CITY.wT -= dt; if (CITY.wT <= 0) { CITY.wT = CITY.room ? 1 / 12 : 1.5; cityWrite(); } }
-  // everyone else: glide between their updates using the speed they reported
-  const now = performance.now();
+  const now = performance.now(), mine = driving ? van.pos : P.pos;
   for (const R of CITY.others.values()) {
-    if (!cityFresh(R)) { if (R.av) R.av.g.visible = false; if (R.label) R.label.visible = false; continue; }
-    const p = R.data.p, e = Math.min((now - R.rx) / 1000, 1.8);
-    R.pres = { p: { ...p, x: num(p.x) + clamp(num(p.vx), -12, 12) * e, z: num(p.z) + clamp(num(p.vz), -12, 12) * e, f: CITY.room ? num(p.f, -1) : -1 } };
-    mpAvatar(R, dt);
+    cityRead(R);
+    if (!cityFresh(R)) { if (R.av) R.av.g.visible = false; if (R.label) R.label.visible = false; if (R.truck) R.truck.g.visible = false; R.tgt.alive = false; continue; }
+    const p = R.data.p;
+    if (p.v === 1) { cityTruck(R, dt); }
+    else {
+      if (R.truck) { scene.remove(R.truck.g); R.truck = null; mpDropAvatar(R); }
+      const e = Math.min((now - R.rx) / 1000, 1.8);
+      R.pres = { p: { ...p, x: num(p.x) + clamp(num(p.vx), -12, 12) * e, z: num(p.z) + clamp(num(p.vz), -12, 12) * e, f: CITY.room ? num(p.f, -1) : -1 } };
+      mpAvatar(R, dt);
+      // our convoy rolling up beside them: drop supplies
+      R.giftT -= dt;
+      if (driving && CITY.room && state === 'play' && R.tgt.alive && R.giftT <= 0 && Math.abs(van.speed) < 4.5 && Math.hypot(R.pos.x - van.pos.x, R.pos.z - van.pos.z) < 8) {
+        R.giftT = 25;
+        const kind = pick(['health', 'ammo', 'ammo', 'blaster']);
+        CITY.gifts.push([++CITY.giftSeq, R.peer, kind]); if (CITY.gifts.length > 12) CITY.gifts.shift();
+        score += 500; tone('sine', 520, 1040, .3, .14); playSfx('cell', { vol: .7 }); callout(['Supplies dropped', CREWS[CREWS[p.k] ? p.k : 'liberty'].name]);
+      }
+    }
   }
+  // a convoy runs over the aliens other players' games are running, too
+  if (driving && CITY.room && Math.abs(van.speed) > 5) {
+    for (const a of aliens) {
+      if (!a.net || a.brute || a.roadT > time) continue;
+      if (Math.hypot(a.g.position.x - van.pos.x, a.g.position.z - van.pos.z) < 3) { a.roadT = time + 2; netHit(a, 40); burst(a.aim, 18, '#d35cff', 6, .5, 2); sfxSquish(4); }
+    }
+  }
+  // mirrors that wandered out of sight
+  for (const [key, a] of CITY.ents) { const p = a.g.position; if (Math.hypot(p.x - mine.x, p.z - mine.z) > CITY_SEE + 40) { mpRemoveEnt(a); CITY.ents.delete(key); } }
   if (cityCount() > 0) achUnlock('coop');
 }
+
 // endless invasion that ramps up slowly
 function citySpawn(dt) {
   CITY.t += dt;
@@ -3832,11 +4016,11 @@ function tryFire(aiming, hs) {
   flash.position.copy(muzzleW); flash.quaternion.copy(camera.quaternion); flash.rotation.z = Math.random() * 3; flash.visible = true;
   muzzleLight.position.copy(muzzleW); muzzleLight.color.set(blast ? '#ff5ad8' : '#ffb85c'); muzzleLight.intensity = 14;
   if (hit.drone) {
-    const d = hit.drone; if (MP.client && d.net) mpHit(d.nid, dmg); else d.hp -= dmg; d.flash = 1; d.vel.addScaledVector(camDir, 3);
+    const d = hit.drone; if (d.net) netHit(d, dmg); else d.hp -= dmg; d.flash = 1; d.vel.addScaledVector(camDir, 3);
     burst(hp, 14, '#e6b8ff', 6, .4); showHit(); sfxHit(); sfxImpact(hit.t * .4);
     if (d.hp <= 0) killDrone(d, drones.indexOf(d));
   } else if (hit.alien) {
-    const a = hit.alien; if (MP.client && a.net) mpHit(a.nid, dmg); else a.hp -= dmg; a.flash = 1; a.vel.addScaledVector(camDir, a.brute ? .5 : 2.5);
+    const a = hit.alien; if (a.net) netHit(a, dmg); else a.hp -= dmg; a.flash = 1; a.vel.addScaledVector(camDir, a.brute ? .5 : 2.5);
     burst(hp, 12, '#d35cff', 5, .4); showHit(); sfxHit();
     if (a.hp <= 0) killAlien(a, false);
   } else if (hit.boss) {
@@ -4064,7 +4248,7 @@ function updateHud(dt) {
   let title, rows, stars;
   if (cvm) {
     const s = SUPPLY.cur, d = Math.ceil(convoy.dist);
-    title = 'Supply run';
+    title = CITY.on ? `Open city · Convoy${CITY.room ? ` · ${cityCount() + 1} in the city` : ''}` : 'Supply run';
     rows = [['Supply the crews', `${SUPPLY.done}/${SUPPLY.n}`, ''],
       [s ? `${SUPPLY_DELIVERING() ? 'Unloading' : SUP_LABEL[s.type]} → ${DIST_NAME[s.dk]}` : 'All crews supplied', s ? (SUPPLY_DELIVERING() ? Math.round(SUPPLY.deliver / 1.6 * 100) + '%' : d >= 1000 ? (d / 1000).toFixed(1) + ' km' : d + ' m') : '', 'cur'],
       ['Keep the truck running', Math.ceil(P.hp) + '%', '']];
@@ -4417,8 +4601,9 @@ function fighterShoot(f, foe) {
   const act = fPlay(f, 'Pistol_Shoot', .05, true); act.timeScale = 1.5;
   if (!hit) return;
   const dmg = f.blaster ? 3 : 1;
-  if (aliens.includes(foe)) { foe.hp -= dmg; foe.flash = 1; burst(_ft, 6, '#d35cff', 4, .3); if (foe.hp <= 0) { killAlien(foe, false); f.foe = null; } }
-  else if (drones.includes(foe)) { foe.hp -= dmg; foe.flash = 1; if (foe.hp <= 0) { killDrone(foe, drones.indexOf(foe)); f.foe = null; } }
+  if (foe.net) { netHit(foe, dmg); foe.flash = 1; burst(_ft, 6, '#d35cff', 4, .3); }
+  else if (aliens.includes(foe)) { foe.hp -= dmg; foe.flash = 1; burst(_ft, 6, '#d35cff', 4, .3); if (foe.hp <= 0) { killAlien(foe, false); f.foe = null; } }
+  else if (drones.includes(foe) && !foe.net) { foe.hp -= dmg; foe.flash = 1; if (foe.hp <= 0) { killDrone(foe, drones.indexOf(foe)); f.foe = null; } }
 }
 function updateFighters(dt) {
   const play = state === 'play';
@@ -4634,7 +4819,7 @@ function updateSupply(dt) {
       if (cur.fighters.some(f => !f.alive)) { const f = makeFighter(cur.x + rr(-3, 3), cur.z + rr(-3, 3), cur); if (f) { fighterPost(f); cur.fighters.push(f); } }
       score += 1500; tone('sine', 520, 1040, .3, .16); playSfx('cell', { vol: .8 });
       banner(`${SUP_LABEL[cur.type]} delivered`, `${DIST_NAME[cur.dk]} · ${SUPPLY.done}/${SUPPLY.n} crews supplied`);
-      if (SUPPLY.done >= SUPPLY.n) endRun(true);
+      if (SUPPLY.done >= SUPPLY.n) { if (CITY.on) { startSupplyRun(); setTimeout(() => banner('More crews need help', 'New supply stops are on your map'), 2600); } else endRun(true); }
     }
   } else SUPPLY.deliver = Math.max(0, SUPPLY.deliver - dt * 2);
   // the city keeps throwing aliens and drones at the truck; more as you go
@@ -5148,7 +5333,7 @@ function tick(dt) {
     if (WORLD) updateNPCs(dt);
     if (SIMP) { updateFighters(dt); updatePickups(dt); }
     if (WORLD) { updateDestruction(dt); updateExpl(dt); }
-    if (WORLD) { if (MP.client) mpClientAnim(dt); else { updateDrones(dt); updateAliens(dt); updateDrops(dt); updateBoss(dt); } updateBolts(dt); updateCorpses(dt); updateSwarm(dt); updateWarzone(dt); }
+    if (WORLD) { if (MP.client) mpClientAnim(dt); else { updateDrones(dt); updateAliens(dt); updateDrops(dt); updateBoss(dt); if (CITY.room) mpClientAnim(dt, true); } updateBolts(dt); updateCorpses(dt); updateSwarm(dt); updateWarzone(dt); }
     mpTick(dt); cityTick(dt); recTick(dt);
   }
   updateSparks(dt); updateAmb(dt); updateFX(WORLD ? dt : 0);
@@ -5875,7 +6060,8 @@ function menuAdjust(el, d) {
 document.querySelectorAll('.mi[data-sub]').forEach(b => b.addEventListener('click', () => openSub(b.dataset.sub)));
 $('coopHost').addEventListener('click', () => mpHost());
 $('coopQuick').addEventListener('click', () => mpQuick());
-$('coopCity').addEventListener('click', () => cityStart());
+$('coopCity').addEventListener('click', () => cityStart('foot'));
+$('coopCityTruck').addEventListener('click', () => cityStart('convoy'));
 $('coopCodeForm').addEventListener('submit', e => { e.preventDefault(); const c = $('coopCode').value.trim().toLowerCase().replace(/[^a-z0-9]/g, ''); if (c.length < 4) { $('coopCode').focus(); return; } const g = MP.games.find(x => x.code === c); mpJoin(c, g ? g.crew : null); });
 $('coopCode').addEventListener('keydown', e => e.stopPropagation());
 document.querySelectorAll('.lb-tab').forEach(b => b.addEventListener('click', () => { REC.tab = b.dataset.m; recRenderBoard(); }));
@@ -6053,7 +6239,7 @@ mmInit();
 frame();
 loadNPCs().then(spawnNPCs).catch(e => console.warn('Neighbors failed to load', e));
 // test hook for automated screenshots
-window.__tc = { CITY, cityStart: () => cityStart(), SFX, AMB, mpQuick: () => mpQuick(), mpHit: (i, d) => mpHit(i, d), REC, achUnlock: k => achUnlock(k), MP, mpHost: () => mpHost(), mpJoin: (c, k) => mpJoin(c, k), GP, get mode() { return mode; }, V3, LASER, TBEAM, SWARM, inp, fireLaser: (a, b, c, o) => fireLaser(a, b, c, o), dropLoot: (p, k) => dropLoot(p, k), collectLoot: k => collectLoot(k), boomFX: (x, y, z, s, k) => boomFX(x, y, z, s, k), freeSpot: (x, z, r) => freeSpot(x, z, r), rayClear: (x, z, ex, ez) => { const o = new V3(x, 2, z), d = new V3(ex - x, 0, ez - z), L = d.length(); d.divideScalar(L); return rayWorld(o, d, L, false).t >= L - 6; }, DEST, CARS, smashCar: (c, d, s) => smashCar(c, d, s), NPC, FIGHT, PICK, SUPPLY, aliens, drones, get van() { return van; }, MUSIC, initAudio: () => initAudio(), MURALS, endRun: w => endRun(w), wetPass, MENU_CAM, get time() { return time; }, freeze: v => { FROZEN = v; clock.getDelta(); }, sim: (sec, st = 1 / 30) => { for (let t = 0; t < sec; t += st) tick(st); }, render: () => composer.render(), tick, play: (m, r) => play(m, r), dtMax: v => { DT_MAX = v; }, lockPR: v => { prLock = 1; pr = v; renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); }, P, setCrew, applyMood, get state() { return state; }, get score() { return score; }, killAlien: a => killAlien(a, false), killDrone: d => killDrone(d, drones.indexOf(d)) };
+window.__tc = { netHit: (a, d) => netHit(a, d), CITY, cityStart: r => cityStart(r), SFX, AMB, mpQuick: () => mpQuick(), mpHit: (i, d) => mpHit(i, d), REC, achUnlock: k => achUnlock(k), MP, mpHost: () => mpHost(), mpJoin: (c, k) => mpJoin(c, k), GP, get mode() { return mode; }, V3, LASER, TBEAM, SWARM, inp, fireLaser: (a, b, c, o) => fireLaser(a, b, c, o), dropLoot: (p, k) => dropLoot(p, k), collectLoot: k => collectLoot(k), boomFX: (x, y, z, s, k) => boomFX(x, y, z, s, k), freeSpot: (x, z, r) => freeSpot(x, z, r), rayClear: (x, z, ex, ez) => { const o = new V3(x, 2, z), d = new V3(ex - x, 0, ez - z), L = d.length(); d.divideScalar(L); return rayWorld(o, d, L, false).t >= L - 6; }, DEST, CARS, smashCar: (c, d, s) => smashCar(c, d, s), NPC, FIGHT, PICK, SUPPLY, aliens, drones, get van() { return van; }, MUSIC, initAudio: () => initAudio(), MURALS, endRun: w => endRun(w), wetPass, MENU_CAM, get time() { return time; }, freeze: v => { FROZEN = v; clock.getDelta(); }, sim: (sec, st = 1 / 30) => { for (let t = 0; t < sec; t += st) tick(st); }, render: () => composer.render(), tick, play: (m, r) => play(m, r), dtMax: v => { DT_MAX = v; }, lockPR: v => { prLock = 1; pr = v; renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); }, P, setCrew, applyMood, get state() { return state; }, get score() { return score; }, killAlien: a => killAlien(a, false), killDrone: d => killDrone(d, drones.indexOf(d)) };
 $('play').disabled = false; $('playLbl').textContent = 'Hold the block'; $('miConvoy').disabled = false;
 menuSelect($('play'));
 </script>

@@ -4,12 +4,12 @@ THEY CAME - web version
 This folder is the whole game. Put it on any website that serves static files and share the link.
 Players need nothing but the link: no Claude account, no sign-up, no install. Works on desktop and phone browsers.
 
-Co-op (Co-op on the main menu)
-- Quick play: everyone who presses it lands in one shared fight (up to 4). If the player running the
-  aliens leaves, someone else takes over and the run keeps going.
-- Host a game: gives a 4-letter code for friends to type in.
-- Open city: drop-in sandbox with endless aliens; everyone in the city shows on the map as a white dot and
-  appears as their hero when close.
+Co-op (Co-op on the main menu) - built for strangers to team up, no hosting
+- Open city, on foot: drop in anytime. Everyone in the city fights the same endless invasion; each player's
+  game runs the aliens that spawn around it and shares them, so nobody has to host.
+- Open city, convoy: roll a supply truck through the same city (up to 15 at once). Pull up next to a player
+  on foot to restock them; run supplies to the crews marked on your map.
+- Quick play: wave mode with whoever's on, through to the mothership.
 
 How players connect: browsers find each other through free public relay servers, then talk directly to
 each other. There is no game server to run. A few networks (some mobile carriers and strict work or school
