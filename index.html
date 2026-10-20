@@ -4056,7 +4056,7 @@ function startReload() {
 function finishReload() { const need = 30 - P.ammo, take = driving ? need : Math.min(need, P.reserve); P.ammo += take; if (!driving) P.reserve -= take; $('reloadTxt').hidden = true; updateAmmo(); }
 const camDir = new V3(), origin = new V3(), muzzleW = new V3();
 function tryFire(aiming, hs) {
-  if (P.reload > 0 || P.fireCd > 0 || P.down > 0 || P.rollT > .15) return;
+  if (P.reload > 0 || P.fireCd > 0 || P.down > 0 || P.rollT > .15 || CINE.t < CINE.dur * .8) return;
   const blast = P.weapon === 'blaster' && !driving, dmg = blast ? 3 : 1;
   if (!blast && P.ammo <= 0) { startReload(); return; }
   if (blast) { P.fireCd = 1 / 6; P.blastAmmo--; } else { P.fireCd = 1 / 9.5; P.ammo--; }
@@ -4104,7 +4104,29 @@ function hurt(dmg, dir) {
 }
 let sprFov = 0;
 const MENU_CAM = { th: .96, back: 4.2, side: -1.5, h: 1.05, fov: 46, up: 12, look: -3, backC: 3.2, sideC: -.8, hC: 1.4, fovC: 38, upC: 1.45, lookC: -2.3, turn: -.32, k: 0, port: { backC: 3.9, sideC: 0, hC: 1.3, fovC: 52, upC: -.2, lookC: 0 } };
+// Opening shot when a run starts: high over the block, spiralling down and round to settle exactly into the usual
+// camera behind the hero (or the truck). Firing or aiming cuts it short.
+const CINE = { t: 9, dur: 3.6 };
+const _cq = new THREE.Quaternion();
+function cineStart() { CINE.t = 0; }
 function updateCamera(dt) {
+  updateCameraCore(dt);
+  if (CINE.t >= CINE.dur || (state !== 'play' && state !== 'paused')) return;
+  if (state === 'play') CINE.t += dt;
+  if (CINE.t > .4 && (inp.fire || inp.aim)) CINE.t = Math.max(CINE.t, CINE.dur * .82);
+  const k = clamp(CINE.t / CINE.dur, 0, 1); if (k >= 1) return;
+  const e = k * k * (3 - 2 * k), focus = driving ? van.pos : P.pos;
+  const endPos = camera.position.clone(), endQ = camera.quaternion.clone(), endFov = camera.fov;
+  const endAng = Math.atan2(endPos.x - focus.x, endPos.z - focus.z), endRad = Math.hypot(endPos.x - focus.x, endPos.z - focus.z);
+  const ang = endAng + (1 - e) * Math.PI * 1.3, rad = lerp(46, endRad, e), hgt = lerp(70, endPos.y - focus.y, Math.pow(e, 1.7));
+  const pos = new V3(focus.x + Math.sin(ang) * rad, focus.y + hgt, focus.z + Math.cos(ang) * rad);
+  const b = clamp((k - .72) / .28, 0, 1); pos.lerp(endPos, b * b * (3 - 2 * b));
+  camera.position.copy(pos);
+  camera.lookAt(focus.x, focus.y + (driving ? 2 : 1.2), focus.z); _cq.copy(camera.quaternion);
+  camera.quaternion.copy(_cq).slerp(endQ, Math.pow(e, 2.6));
+  camera.fov = lerp(52, endFov, e); camera.updateProjectionMatrix();
+}
+function updateCameraCore(dt) {
   const aiming = state === 'play' && (inp.aim || inp.aimToggle);
   aimT = damp(aimT, aiming ? 1 : 0, 14, dt);
   P.pitch = clamp(P.pitch, -1.1, 1.0);
@@ -5238,11 +5260,13 @@ function endRun(won) {
   if (MP.client) menuSelect($('deadQuit'));
 }
 function play(m, r) {
-  if (state === 'menu' || state === 'dead') uiSfx('start', .5);
+  const fromMenu = state === 'menu' || state === 'dead';
+  if (fromMenu) uiSfx('start', .5);
   if (typeof m === 'string') mode = m; if (r) routeKey = r;
   initAudio();
   closeSub(); $('menu').hidden = true; $('dead').hidden = true; $('pause').hidden = true; $('hud').hidden = false; $('touch').hidden = !TOUCH || GP.active;
   resetGame(); state = 'play'; lock();
+  if (fromMenu) cineStart(); else CINE.t = CINE.dur;
 }
 $('play').addEventListener('click', () => play('waves'));
 $('miConvoy').addEventListener('click', () => play('convoy'));
@@ -6316,7 +6340,7 @@ mmInit();
 frame();
 loadNPCs().then(spawnNPCs).catch(e => console.warn('Neighbors failed to load', e));
 // test hook for automated screenshots
-window.__tc = { netHit: (a, d) => netHit(a, d), CITY, cityStart: r => cityStart(r), SFX, AMB, mpQuick: () => mpQuick(), mpHit: (i, d) => mpHit(i, d), REC, achUnlock: k => achUnlock(k), MP, mpHost: () => mpHost(), mpJoin: (c, k) => mpJoin(c, k), GP, get mode() { return mode; }, V3, LASER, TBEAM, SWARM, inp, fireLaser: (a, b, c, o) => fireLaser(a, b, c, o), dropLoot: (p, k) => dropLoot(p, k), collectLoot: k => collectLoot(k), boomFX: (x, y, z, s, k) => boomFX(x, y, z, s, k), freeSpot: (x, z, r) => freeSpot(x, z, r), rayClear: (x, z, ex, ez) => { const o = new V3(x, 2, z), d = new V3(ex - x, 0, ez - z), L = d.length(); d.divideScalar(L); return rayWorld(o, d, L, false).t >= L - 6; }, DEST, CARS, smashCar: (c, d, s) => smashCar(c, d, s), NPC, FIGHT, PICK, SUPPLY, aliens, drones, get van() { return van; }, MUSIC, initAudio: () => initAudio(), MURALS, endRun: w => endRun(w), wetPass, MENU_CAM, get time() { return time; }, freeze: v => { FROZEN = v; clock.getDelta(); }, sim: (sec, st = 1 / 30) => { for (let t = 0; t < sec; t += st) tick(st); }, render: () => composer.render(), tick, play: (m, r) => play(m, r), dtMax: v => { DT_MAX = v; }, lockPR: v => { prLock = 1; pr = v; renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); }, P, setCrew, applyMood, get state() { return state; }, get score() { return score; }, killAlien: a => killAlien(a, false), killDrone: d => killDrone(d, drones.indexOf(d)) };
+window.__tc = { CINE, netHit: (a, d) => netHit(a, d), CITY, cityStart: r => cityStart(r), SFX, AMB, mpQuick: () => mpQuick(), mpHit: (i, d) => mpHit(i, d), REC, achUnlock: k => achUnlock(k), MP, mpHost: () => mpHost(), mpJoin: (c, k) => mpJoin(c, k), GP, get mode() { return mode; }, V3, LASER, TBEAM, SWARM, inp, fireLaser: (a, b, c, o) => fireLaser(a, b, c, o), dropLoot: (p, k) => dropLoot(p, k), collectLoot: k => collectLoot(k), boomFX: (x, y, z, s, k) => boomFX(x, y, z, s, k), freeSpot: (x, z, r) => freeSpot(x, z, r), rayClear: (x, z, ex, ez) => { const o = new V3(x, 2, z), d = new V3(ex - x, 0, ez - z), L = d.length(); d.divideScalar(L); return rayWorld(o, d, L, false).t >= L - 6; }, DEST, CARS, smashCar: (c, d, s) => smashCar(c, d, s), NPC, FIGHT, PICK, SUPPLY, aliens, drones, get van() { return van; }, MUSIC, initAudio: () => initAudio(), MURALS, endRun: w => endRun(w), wetPass, MENU_CAM, get time() { return time; }, freeze: v => { FROZEN = v; clock.getDelta(); }, sim: (sec, st = 1 / 30) => { for (let t = 0; t < sec; t += st) tick(st); }, render: () => composer.render(), tick, play: (m, r) => play(m, r), dtMax: v => { DT_MAX = v; }, lockPR: v => { prLock = 1; pr = v; renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); }, P, setCrew, applyMood, get state() { return state; }, get score() { return score; }, killAlien: a => killAlien(a, false), killDrone: d => killDrone(d, drones.indexOf(d)) };
 $('play').disabled = false; $('playLbl').textContent = 'Hold the block'; $('miConvoy').disabled = false;
 menuSelect($('play'));
 </script>
