@@ -1829,7 +1829,7 @@ addEventListener('pointerdown', () => initAudio(), { once: true }); addEventList
 
 /* ---- recorded sound effects (with the synth versions as fallbacks until they load) ---- */
 const SFX = { buf: {}, raw: {}, off: {}, last: {} };
-const SFX_FILES = ['cell', 'dry', 'shot', 'shot2', 'rel1', 'rel2', 'blaster', 'dronefire', 'impact', 'ric', 'boom1', 'boom2', 'boom3', 'boom4', 'boom5', 'boom6', 'amb_game', 'amb_menu', 'xboom1', 'xboom2', 'xboom3', 'snarl', 'scream', 'crash1', 'crash2', 'ric2', 'ric3', 'debris1', 'debris2', 'amb_crowd', 'amb_street'];
+const SFX_FILES = ['cell', 'dry', 'shot', 'shot2', 'rel1', 'rel2', 'blaster', 'dronefire', 'impact', 'ric', 'boom1', 'boom2', 'boom3', 'boom4', 'boom5', 'boom6', 'amb_game', 'amb_menu', 'xboom1', 'xboom2', 'xboom3', 'snarl', 'scream', 'crash1', 'crash2', 'ric2', 'ric3', 'debris1', 'debris2', 'amb_crowd', 'amb_street', 'ui_move', 'ui_select', 'ui_start', 'ui_back', 'ui_crew'];
 function loadSfx() {
   for (const n of SFX_FILES) fetch('sfx/' + n + '.mp3').then(r => r.ok ? r.arrayBuffer() : null).then(b => { if (b) { SFX.raw[n] = b; decodeSfx(n); } }).catch(() => {});
 }
@@ -1944,6 +1944,8 @@ const sfxHiss = d => { const v = clamp(1 - d / 30, .1, 1); noiseHit(.3, 'highpas
 const sfxCrash = (vol = .75) => { if (sfxGate('crash', .18) && playSfx('crash' + (1 + Math.floor(Math.random() * 2)), { vol, rate: rr(.9, 1.08) })) return; noiseHit(.35, 'lowpass', 900, 90, .6); tone('sine', 120, 40, .3, .4); };
 // a building coming down: the explosion with debris, then the rubble settling
 // the one explosion that lands right on top of you: a house on your block coming down
+// menu sounds: a soft tick to move, gun-handling clicks to pick, a charging handle to start
+const uiSfx = (n, vol = .4) => { if (sfxGate('ui_' + n, n === 'move' ? .045 : .12)) playSfx('ui_' + n, { vol, rate: n === 'move' ? rr(.96, 1.04) : 1 }); };
 const sfxBuilding = d => {
   if (d < 45) { if (!playSfx('xboom3', { vol: 1, rate: rr(.94, 1.02) })) sfxBoom(d); setTimeout(() => playSfx('debris' + (1 + Math.floor(Math.random() * 2)), { vol: .75, rate: rr(.9, 1.05) }), 350); return; }
   sfxBoom(d); setTimeout(() => playSfx('debris' + (1 + Math.floor(Math.random() * 2)), { vol: .22, lp: 700, rate: rr(.85, 1) }), 600);
@@ -4176,6 +4178,7 @@ function touchLook(t, e, mult) {
 }
 function pauseGame() {
   if (state !== 'play') return;
+  uiSfx('select', .35);
   state = 'paused'; inp.fire = inp.aim = false; inp.mx = inp.my = 0; touches.clear(); $('banner').classList.remove('on'); bannerT = 0;
   $('stick').classList.remove('on'); $('bFire').classList.remove('held');
   $('pauseSet').appendChild($('settings')); $('pause').hidden = false;
@@ -4231,7 +4234,7 @@ document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement !== cv) pauseGame();
 });
 document.addEventListener('pointerlockerror', () => { lockFallback = true; });
-$('resume').addEventListener('click', () => { $('pause').hidden = true; state = 'play'; lock(); });
+$('resume').addEventListener('click', () => { uiSfx('back', .3); $('pause').hidden = true; state = 'play'; lock(); });
 
 /* ================= HUD ================= */
 let hitT = 0, calloutT = 0, bannerT = 0;
@@ -5235,6 +5238,7 @@ function endRun(won) {
   if (MP.client) menuSelect($('deadQuit'));
 }
 function play(m, r) {
+  if (state === 'menu' || state === 'dead') uiSfx('start', .5);
   if (typeof m === 'string') mode = m; if (r) routeKey = r;
   initAudio();
   closeSub(); $('menu').hidden = true; $('dead').hidden = true; $('pause').hidden = true; $('hud').hidden = false; $('touch').hidden = !TOUCH || GP.active;
@@ -6095,9 +6099,10 @@ function menuSelect(el) {
 function menuMove(d) {
   const items = menuItems(); if (!items.length) return;
   let i = items.findIndex(el => el.classList.contains('sel') || el.classList.contains('focus'));
-  i = ((i < 0 ? 0 : i + d) + items.length) % items.length; menuSelect(items[i]);
+  i = ((i < 0 ? 0 : i + d) + items.length) % items.length; menuSelect(items[i]); uiSfx('move', .3);
 }
 function openSub(id) {
+  uiSfx('select');
   for (const p of document.querySelectorAll('.tc-panel')) p.hidden = p.id !== id;
   MENU.sub = id; $('menu').classList.add('sub');
   for (const b of $('mList').querySelectorAll('.mi')) b.classList.toggle('sel', b.dataset.sub === id);
@@ -6111,16 +6116,18 @@ function openSub(id) {
 }
 function closeSub() {
   if (!MENU.sub) return;
+  uiSfx('back', .35);
   const btn = document.querySelector(`[data-sub="${MENU.sub}"]`);
   $(MENU.sub).hidden = true; MENU.sub = null; $('menu').classList.remove('sub');
   if (btn) menuSelect(btn);
 }
 function menuActivate(el) {
   if (!el || el.disabled) return;
-  if (el.classList.contains('set')) { const inpEl = el.querySelector('input,select'); if (inpEl.type === 'checkbox') { inpEl.checked = !inpEl.checked; inpEl.dispatchEvent(new Event('change')); } else menuAdjust(el, 1); return; }
+  if (el.classList.contains('set')) { const inpEl = el.querySelector('input,select'); if (inpEl.type === 'checkbox') { uiSfx('select', .35); inpEl.checked = !inpEl.checked; inpEl.dispatchEvent(new Event('change')); } else menuAdjust(el, 1); return; }
   el.click();
 }
 function menuAdjust(el, d) {
+  uiSfx('move', .3);
   const inpEl = el.querySelector('input,select'); if (!inpEl) return;
   if (inpEl.type === 'range') { inpEl.value = clamp(+inpEl.value + d * +inpEl.step, +inpEl.min, +inpEl.max); inpEl.dispatchEvent(new Event('input')); }
   else if (inpEl.tagName === 'SELECT') { inpEl.selectedIndex = (inpEl.selectedIndex + d + inpEl.options.length) % inpEl.options.length; inpEl.dispatchEvent(new Event('change')); }
@@ -6132,10 +6139,10 @@ $('coopCity').addEventListener('click', () => cityStart('foot'));
 $('coopCityTruck').addEventListener('click', () => cityStart('convoy'));
 $('coopCodeForm').addEventListener('submit', e => { e.preventDefault(); const c = $('coopCode').value.trim().toLowerCase().replace(/[^a-z0-9]/g, ''); if (c.length < 4) { $('coopCode').focus(); return; } const g = MP.games.find(x => x.code === c); mpJoin(c, g ? g.crew : null); });
 $('coopCode').addEventListener('keydown', e => e.stopPropagation());
-document.querySelectorAll('.lb-tab').forEach(b => b.addEventListener('click', () => { REC.tab = b.dataset.m; recRenderBoard(); }));
+document.querySelectorAll('.lb-tab').forEach(b => b.addEventListener('click', () => { uiSfx('select', .35); REC.tab = b.dataset.m; recRenderBoard(); }));
 document.querySelectorAll('.opt.back').forEach(b => b.addEventListener('click', closeSub));
 for (const root of [$('menu'), $('pause'), $('dead')]) root.addEventListener('pointermove', e => {
-  const el = e.target.closest('.mi, .opt, .crew, .set'); if (el && !el.classList.contains('sel') && !el.classList.contains('focus') && menuRoot().contains(el)) menuSelect(el);
+  const el = e.target.closest('.mi, .opt, .crew, .set'); if (el && !el.classList.contains('sel') && !el.classList.contains('focus') && menuRoot().contains(el)) { menuSelect(el); uiSfx('move', .22); }
 });
 addEventListener('keydown', e => {
   if (state === 'play') return;
@@ -6148,6 +6155,7 @@ addEventListener('keydown', e => {
 });
 // back to the title screen from pause or the end screen
 function toMenu() {
+  uiSfx('back', .35);
   mpLeave(); cityStop();
   state = 'menu'; inp.fire = inp.aim = false; inp.aimToggle = inp.sprint = false; inp.mx = inp.my = 0; touches.clear();
   $('pause').hidden = $('dead').hidden = $('hud').hidden = $('touch').hidden = true;
@@ -6274,7 +6282,7 @@ function padNav(vy, vx) {
 mpInit(); recInit(); recRenderAch();
 document.body.classList.toggle('touch', TOUCH);
 $('crews').innerHTML = Object.entries(CREWS).map(([k, c]) => `<button class="crew" data-k="${k}" aria-pressed="false"><span class="sw"><i style="background:${c.jersey}"></i><i style="background:${c.trim}"></i></span><b>${c.name}</b><span class="d">${c.blurb}</span></button>`).join('');
-document.querySelectorAll('.crew').forEach(b => b.addEventListener('click', () => { setCrew(b.dataset.k); menuSelect(b); }));
+document.querySelectorAll('.crew').forEach(b => b.addEventListener('click', () => { setCrew(b.dataset.k); menuSelect(b); uiSfx('crew', .5); }));
 $('hint').innerHTML = (TOUCH
   ? '<dl><dt>Move</dt><dd>Left thumb anywhere on the left side</dd><dt>Look</dt><dd>Right thumb drag</dd><dt>Shoot</dt><dd>Hold FIRE; drag it to aim while shooting</dd><dt>Zoom</dt><dd>ZOOM toggles the shoulder view</dd><dt>Dodge</dt><dd>ROLL dives the way you’re moving; shots miss you mid-roll</dd><dt>Pick up</dt><dd>Run over health, ammo and alien blasters dropped by aliens</dd><dt>Supply run</dt><dd>The truck rolls on its own: steer with the left thumb, pull back to brake. Stop in a crew’s ring to unload</dd></dl>'
   : '<dl><dt>Move</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dd><dt>Look</dt><dd>Mouse</dd><dt>Shoot / zoom</dt><dd>Left click / right click</dd><dt>Pick up</dt><dd>Run over health, ammo and alien blasters</dd><dt>Jump</dt><dd><kbd>Space</kbd></dd><dt>Dodge roll</dt><dd><kbd>Shift</kbd> or <kbd>C</kbd></dd><dt>Reload</dt><dd><kbd>R</kbd></dd><dt>Pause</dt><dd><kbd>Esc</kbd></dd><dt>Convoy</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive, <kbd>Space</kbd> handbrake, mouse aims the turret. Stop in a crew’s ring to unload</dd></dl>') + '<h4 class="padh">Controller</h4><dl><dt>Move / steer</dt><dd>Left stick</dd><dt>Look / turret</dt><dd>Right stick</dd><dt>Aim / shoot</dt><dd><kbd>LT</kbd> / <kbd>RT</kbd></dd><dt>Jump</dt><dd><kbd>A</kbd></dd><dt>Dodge roll</dt><dd><kbd>B</kbd></dd><dt>Reload</dt><dd><kbd>X</kbd></dd><dt>Swap weapon</dt><dd><kbd>Y</kbd> rifle ↔ alien blaster</dd><dt>Handbrake</dt><dd><kbd>A</kbd> or <kbd>B</kbd> in the truck</dd><dt>Pause</dt><dd><kbd>☰</kbd> Menu</dd><dt>Menus</dt><dd>D-pad or left stick, <kbd>A</kbd> select, <kbd>B</kbd> back</dd></dl>';
