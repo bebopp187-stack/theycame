@@ -173,6 +173,7 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 .crew.sel{background:linear-gradient(90deg,var(--pink),rgba(240,32,138,.75));color:#fff}
 .crew.sel .d{color:#ffe1f0}
 .crew.sel[aria-pressed="true"]::after{color:#fff}
+.crew[aria-pressed="true"]:not(.sel){box-shadow:inset 3px 0 0 var(--pink);background:rgba(255,45,149,.12)}
 .settings{display:grid;gap:10px;font:600 16px/1.2 var(--body)}
 .set{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,.04)}
 .set>span{font:800 18px/1 var(--cond);text-transform:uppercase;letter-spacing:.03em}
@@ -6273,7 +6274,7 @@ function padNav(vy, vx) {
 mpInit(); recInit(); recRenderAch();
 document.body.classList.toggle('touch', TOUCH);
 $('crews').innerHTML = Object.entries(CREWS).map(([k, c]) => `<button class="crew" data-k="${k}" aria-pressed="false"><span class="sw"><i style="background:${c.jersey}"></i><i style="background:${c.trim}"></i></span><b>${c.name}</b><span class="d">${c.blurb}</span></button>`).join('');
-document.querySelectorAll('.crew').forEach(b => b.addEventListener('click', () => setCrew(b.dataset.k)));
+document.querySelectorAll('.crew').forEach(b => b.addEventListener('click', () => { setCrew(b.dataset.k); menuSelect(b); }));
 $('hint').innerHTML = (TOUCH
   ? '<dl><dt>Move</dt><dd>Left thumb anywhere on the left side</dd><dt>Look</dt><dd>Right thumb drag</dd><dt>Shoot</dt><dd>Hold FIRE; drag it to aim while shooting</dd><dt>Zoom</dt><dd>ZOOM toggles the shoulder view</dd><dt>Dodge</dt><dd>ROLL dives the way you’re moving; shots miss you mid-roll</dd><dt>Pick up</dt><dd>Run over health, ammo and alien blasters dropped by aliens</dd><dt>Supply run</dt><dd>The truck rolls on its own: steer with the left thumb, pull back to brake. Stop in a crew’s ring to unload</dd></dl>'
   : '<dl><dt>Move</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dd><dt>Look</dt><dd>Mouse</dd><dt>Shoot / zoom</dt><dd>Left click / right click</dd><dt>Pick up</dt><dd>Run over health, ammo and alien blasters</dd><dt>Jump</dt><dd><kbd>Space</kbd></dd><dt>Dodge roll</dt><dd><kbd>Shift</kbd> or <kbd>C</kbd></dd><dt>Reload</dt><dd><kbd>R</kbd></dd><dt>Pause</dt><dd><kbd>Esc</kbd></dd><dt>Convoy</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive, <kbd>Space</kbd> handbrake, mouse aims the turret. Stop in a crew’s ring to unload</dd></dl>') + '<h4 class="padh">Controller</h4><dl><dt>Move / steer</dt><dd>Left stick</dd><dt>Look / turret</dt><dd>Right stick</dd><dt>Aim / shoot</dt><dd><kbd>LT</kbd> / <kbd>RT</kbd></dd><dt>Jump</dt><dd><kbd>A</kbd></dd><dt>Dodge roll</dt><dd><kbd>B</kbd></dd><dt>Reload</dt><dd><kbd>X</kbd></dd><dt>Swap weapon</dt><dd><kbd>Y</kbd> rifle ↔ alien blaster</dd><dt>Handbrake</dt><dd><kbd>A</kbd> or <kbd>B</kbd> in the truck</dd><dt>Pause</dt><dd><kbd>☰</kbd> Menu</dd><dt>Menus</dt><dd>D-pad or left stick, <kbd>A</kbd> select, <kbd>B</kbd> back</dd></dl>';
