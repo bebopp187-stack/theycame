@@ -1,0 +1,4 @@
+net/trystero.js bundles:
+- Trystero 0.25.4 (https://github.com/dmotz/trystero) - MIT License, (c) Dan Motzenbecker
+- noble-secp256k1 3.2.0 (https://github.com/paulmillr/noble-secp256k1) - MIT License, (c) Paul Miller
+three.js r170 is loaded from cdn.jsdelivr.net - MIT License, (c) three.js authors
