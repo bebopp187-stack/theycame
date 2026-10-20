@@ -114,6 +114,7 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 #bAim{width:62px;height:62px;right:calc(130px + env(safe-area-inset-right,0px));bottom:calc(120px + env(safe-area-inset-bottom,0px))}
 #bJump{width:58px;height:58px;right:calc(126px + env(safe-area-inset-right,0px));bottom:calc(44px + env(safe-area-inset-bottom,0px))}
 #bSprint{width:58px;height:58px;left:calc(22px + env(safe-area-inset-left,0px));bottom:calc(168px + env(safe-area-inset-bottom,0px));font-size:10px}
+#bRoll{width:56px;height:56px;right:calc(196px + env(safe-area-inset-right,0px));bottom:calc(52px + env(safe-area-inset-bottom,0px));font-size:11px}
 #bReload{width:46px;height:46px;right:calc(58px + env(safe-area-inset-right,0px));bottom:calc(178px + env(safe-area-inset-bottom,0px))}
 
 /* Menus: "They Came" front end — logo and list on the left over the live city, pink selection bar, panels for sub-menus */
@@ -293,6 +294,7 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
   <button class="tbtn" id="bFire" aria-label="Fire">FIRE</button>
   <button class="tbtn" id="bAim" aria-label="Zoom">ZOOM</button>
   <button class="tbtn" id="bJump" aria-label="Jump">JUMP</button>
+  <button class="tbtn" id="bRoll" aria-label="Dodge roll">ROLL</button>
   <button class="tbtn" id="bReload" aria-label="Reload">R</button>
   <button class="tbtn" id="bSprint" aria-label="Sprint">SPRINT</button>
 </div>
@@ -3203,6 +3205,7 @@ function mpAvatar(R, dt) {
   else { R.pos.x = damp(R.pos.x + vx * dt, tx, 10, dt); R.pos.z = damp(R.pos.z + vz * dt, tz, 10, dt); R.pos.y = damp(R.pos.y, ty, 14, dt); }
   const S = R.st; S.bodyYaw = dampAngle(S.bodyYaw, num(p.b), 14, dt); S.pitch = damp(S.pitch, clamp(num(p.pi), -1.2, 1.2), 12, dt);
   S.vel.set(vx, 0, vz); S.ground = p.g !== 0; S.reload = p.r ? 1 : 0;
+  if (p.ro === 1 && !(S.rollT > 0) && !S.rolled) { S.rollStart = true; S.rollT = ROLL_DUR; } S.rolled = p.ro === 1; if (S.rollT > 0) S.rollT -= dt;
   const dead = p.d === 1;
   if (dead && !R.dead && R.av.mixer) {
     R.dead = true; R.av.dead = true;
@@ -3212,7 +3215,7 @@ function mpAvatar(R, dt) {
   const camD = R.pos.distanceTo(camera.position);
   R.av.g.visible = camD < 220; R.av.g.position.copy(R.pos); R.av.g.rotation.y = S.bodyYaw;
   if (R.av.blaster) { const b = p.w === 1; R.av.blaster.visible = b; if (R.av.gunMesh) R.av.gunMesh.visible = !b; }
-  if (R.av.g.visible && R.av.mixer) animateHero(dt, Math.hypot(vx, vz), p.c === 1, R.av, S);
+  if (R.av.g.visible && R.av.mixer) animateHero(dt, Math.hypot(vx, vz), p.c === 1 && !(S.rollT > 0), R.av, S);
   R.label.visible = R.av.g.visible; R.label.position.set(R.pos.x, R.pos.y + 2.25, R.pos.z);
   R.label.material.opacity = dead ? .45 : 1;
   // their shots
@@ -3232,7 +3235,7 @@ function mpSendMe() {
   const combat = inp.aim || inp.aimToggle || time - P.lastFire < .6;
   const me = { x: q10(P.pos.x) / 10, y: q10(P.pos.y) / 10, z: q10(P.pos.z) / 10, vx: q10(P.vel.x) / 10, vz: q10(P.vel.z) / 10, b: Math.round(P.bodyYaw * 100) / 100,
     pi: Math.round(P.pitch * 100) / 100, g: P.ground ? 1 : 0, c: combat ? 1 : 0, r: P.reload > 0 ? 1 : 0, k: crewKey, w: P.weapon === 'blaster' ? 1 : 0,
-    f: MP.fired, hx: q10(MP.hitP[0]) / 10, hy: q10(MP.hitP[1]) / 10, hz: q10(MP.hitP[2]) / 10, d: P.down > 0 || state === 'dead' ? 1 : 0, hp: Math.ceil(P.hp) };
+    f: MP.fired, hx: q10(MP.hitP[0]) / 10, hy: q10(MP.hitP[1]) / 10, hz: q10(MP.hitP[2]) / 10, d: P.down > 0 || state === 'dead' ? 1 : 0, hp: Math.ceil(P.hp), ro: P.rollT > 0 ? 1 : 0 };
   const patch = { p: me, host: MP.host ? 1 : 0 };
   if (MP.client) patch.h = MP.hits;
   MP.room.presence(patch).catch(() => {});
@@ -3719,7 +3722,7 @@ function netHit(a, dmg) { if (MP.client) mpHit(a.nid, dmg); else if (a.owner) ci
 function cityMeP() {
   const combat = inp.aim || inp.aimToggle || time - P.lastFire < .6;
   const p = { x: q10(P.pos.x) / 10, y: q10(P.pos.y) / 10, z: q10(P.pos.z) / 10, vx: q10(P.vel.x) / 10, vz: q10(P.vel.z) / 10, b: Math.round(P.bodyYaw * 100) / 100,
-    pi: Math.round(P.pitch * 100) / 100, g: P.ground ? 1 : 0, c: combat ? 1 : 0, r: P.reload > 0 ? 1 : 0, k: crewKey, w: P.weapon === 'blaster' ? 1 : 0, d: P.down > 0 ? 1 : 0, hp: Math.ceil(P.hp) };
+    pi: Math.round(P.pitch * 100) / 100, g: P.ground ? 1 : 0, c: combat ? 1 : 0, r: P.reload > 0 ? 1 : 0, k: crewKey, w: P.weapon === 'blaster' ? 1 : 0, d: P.down > 0 ? 1 : 0, hp: Math.ceil(P.hp), ro: P.rollT > 0 ? 1 : 0 };
   if (driving) Object.assign(p, { v: 1, yaw: Math.round(van.yaw * 100) / 100, ty: Math.round(P.yaw * 100) / 100, sp: Math.round(van.speed * 10) / 10 });
   return p;
 }
@@ -3953,6 +3956,7 @@ function collide(p) {
   resolveCircle(p, .38, s => p.y > s.y1 - .05);
   p.x = clamp(p.x, WB.x0, WB.x1); p.z = clamp(p.z, WB.z0, WB.z1);
 }
+const ROLL_DUR = 1.05;
 function updatePlayer(dt) {
   if (P.down > 0) { P.vel.set(0, 0, 0); if (rig.mixer) animateHero(dt, 0, false); return; }
   let mx = inp.mx, my = inp.my;
@@ -3966,8 +3970,21 @@ function updatePlayer(dt) {
   const speed = aiming ? 3.6 : 8.4;
   P.sprinting = !aiming && P.ground && Math.hypot(P.vel.x, P.vel.z) > 6;
   const k = P.ground ? 12 : 2.5;
-  P.vel.x = damp(P.vel.x, wx * speed, k, dt); P.vel.z = damp(P.vel.z, wz * speed, k, dt);
-  if ((keys.Space || inp.jump) && P.ground) { P.vel.y = 6.4; P.ground = false; }
+  // dodge roll: a quick burst the way you're moving (backwards from where you face when standing still); bolts and claws miss while you're down low
+  P.rollCd = (P.rollCd || 0) - dt;
+  if (inp.roll && P.ground && P.rollCd <= 0 && !(P.rollT > 0)) {
+    let dx = wx, dz = wz; if (Math.hypot(dx, dz) < .1) { dx = -fx; dz = -fz; }
+    const l = Math.hypot(dx, dz) || 1; P.rollDir = { x: dx / l, z: dz / l }; P.rollT = ROLL_DUR; P.rollCd = ROLL_DUR + .45; P.rollStart = true;
+    P.bodyYaw = Math.atan2(-P.rollDir.x, -P.rollDir.z); playSfx('cell', { vol: .25, rate: .55 }) || tone('triangle', 200, 120, .12, .05);
+  }
+  inp.roll = false;
+  if (P.rollT > 0) {
+    P.rollT -= dt;
+    const t = 1 - P.rollT / ROLL_DUR, sp = t < .62 ? 10 * (1 - t * .6) : lerp(6.3, 1.5, (t - .62) / .38);
+    P.vel.x = P.rollDir.x * sp; P.vel.z = P.rollDir.z * sp;
+    P.bodyYaw = dampAngle(P.bodyYaw, Math.atan2(-P.rollDir.x, -P.rollDir.z), 20, dt);
+  } else P.vel.x = damp(P.vel.x, wx * speed, k, dt), P.vel.z = damp(P.vel.z, wz * speed, k, dt);
+  if ((keys.Space || inp.jump) && P.ground && !(P.rollT > 0)) { P.vel.y = 6.4; P.ground = false; }
   inp.jump = false;
   P.vel.y -= 19 * dt;
   P.pos.addScaledVector(P.vel, dt);
@@ -3976,8 +3993,9 @@ function updatePlayer(dt) {
   if (P.pos.y <= gy) { P.pos.y = gy; P.vel.y = 0; P.ground = true; }
   else if (P.pos.y - gy > .2) P.ground = false;
   const hs = Math.hypot(P.vel.x, P.vel.z);
-  const combat = aiming || time - P.lastFire < .6;
-  if (combat) P.bodyYaw = dampAngle(P.bodyYaw, P.yaw, 22, dt);
+  const combat = !(P.rollT > 0) && (aiming || time - P.lastFire < .6);
+  if (P.rollT > 0) {}
+  else if (combat) P.bodyYaw = dampAngle(P.bodyYaw, P.yaw, 22, dt);
   else if (hs > .5) P.bodyYaw = dampAngle(P.bodyYaw, Math.atan2(-P.vel.x, -P.vel.z), 10, dt);
   P.phase += hs * dt * 1.6;
   rig.g.position.copy(P.pos); rig.g.rotation.y = P.bodyYaw;
@@ -4005,7 +4023,7 @@ function startReload() {
 function finishReload() { const need = 30 - P.ammo, take = driving ? need : Math.min(need, P.reserve); P.ammo += take; if (!driving) P.reserve -= take; $('reloadTxt').hidden = true; updateAmmo(); }
 const camDir = new V3(), origin = new V3(), muzzleW = new V3();
 function tryFire(aiming, hs) {
-  if (P.reload > 0 || P.fireCd > 0 || P.down > 0) return;
+  if (P.reload > 0 || P.fireCd > 0 || P.down > 0 || P.rollT > .15) return;
   const blast = P.weapon === 'blaster' && !driving, dmg = blast ? 3 : 1;
   if (!blast && P.ammo <= 0) { startReload(); return; }
   if (blast) { P.fireCd = 1 / 6; P.blastAmmo--; } else { P.fireCd = 1 / 9.5; P.ammo--; }
@@ -4044,6 +4062,7 @@ function tryFire(aiming, hs) {
 }
 function hurt(dmg, dir) {
   if (P.down > 0) return;
+  if (P.rollT > .25 && !driving) { if (sfxGate('dodge', .3)) tone('triangle', 900, 1400, .06, .04); return; }
   P.waveHurt = true;
   const di = dmgPool.reduce((a, b) => (a.t < b.t ? a : b)); di.dir = dir.clone().negate(); di.t = 1.2;
   P.hp -= dmg * (driving ? .38 : 1); P.lastHurt = time; padRumble(.7, .4, 160); shake = Math.max(shake, .25); sfxHurt();
@@ -4104,7 +4123,7 @@ function updateCamera(dt) {
 /* --- input --- */
 const lookSens = () => (inp.aim || inp.aimToggle ? .0014 : .0024) * settings.sens;
 let lockFallback = false;
-addEventListener('keydown', e => { keys[e.code] = true; if (state === 'play') { if (e.code === 'KeyR') startReload(); if (e.code === 'Backquote') devHop(); if (e.code === 'Backslash' && mode === 'waves' && !BOSS.active && !BOSS.dying) { wave = BOSS_WAVE - 1; toSpawn = toSpawnG = 0; startWave(); } if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault(); } });
+addEventListener('keydown', e => { keys[e.code] = true; if (state === 'play') { if ((e.code === 'KeyC' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat && !driving) inp.roll = true; if (e.code === 'KeyR') startReload(); if (e.code === 'Backquote') devHop(); if (e.code === 'Backslash' && mode === 'waves' && !BOSS.active && !BOSS.dying) { wave = BOSS_WAVE - 1; toSpawn = toSpawnG = 0; startWave(); } if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault(); } });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; inp.fire = inp.aim = false; });
 const cv = renderer.domElement;
@@ -4169,6 +4188,7 @@ addEventListener('pointermove', e => { const t = touches.get(e.pointerId); if (t
 $('bAim').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); inp.aimToggle = !inp.aimToggle; $('bAim').classList.toggle('held', inp.aimToggle); });
 $('bJump').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); inp.jump = true; });
 $('bSprint').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); inp.sprint = !inp.sprint; if (inp.sprint && inp.aimToggle) { inp.aimToggle = false; $('bAim').classList.remove('held'); } $('bSprint').classList.toggle('held', inp.sprint); });
+$('bRoll').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); inp.roll = true; });
 $('bReload').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); startReload(); });
 function lock() {
   if (TOUCH) return;
@@ -5140,7 +5160,7 @@ function resetGame() {
   resetNPCs();
   driving = mode === 'convoy';
   rig.g.visible = !driving; van.g.visible = driving; finishFx.visible = false;
-  $('bJump').hidden = driving; $('bSprint').hidden = true; $('waveLbl').textContent = driving ? 'To go' : 'Wave';
+  $('bJump').hidden = driving; $('bRoll').hidden = driving; $('bSprint').hidden = true; $('waveLbl').textContent = driving ? 'To go' : 'Wave';
   if (driving) {
     // the supply truck starts on your crew's home street; stops are spread over all three neighborhoods
     const h = crewHome(crewKey);
@@ -5631,6 +5651,7 @@ function makeHero(k) {
     idleU: act(C.Idle_Loop.upper, 1), jogU: act(C.Jog_Fwd_Loop.upper), sprU: act(C.Sprint_Loop.upper), airU: act(C.Jump_Loop.upper),
     aimN: act(C.Pistol_Aim_Neutral.upper), aimU: act(C.Pistol_Aim_Up.upper), aimD: act(C.Pistol_Aim_Down.upper), rel: act(C.Pistol_Reload.upper),
   };
+  if (C.Roll) { A.roll = act(C.Roll.full); A.roll.setLoop(THREE.LoopOnce, 1); A.roll.clampWhenFinished = true; A.roll.timeScale = C.Roll.full.duration / ROLL_DUR; }
   return { g, model, bones, mixer, A, muzzle, mag, blaster, bmuzzle, gunMesh: gun, legYaw: 0, combat: 0, air: 0, relW: 0, kick: 0, dead: false };
 }
 function animateHero(dt, hs, combat, r = rig, S = P) {
@@ -5655,6 +5676,12 @@ function animateHero(dt, hs, combat, r = rig, S = P) {
   const up = clamp(S.pitch / 1.5708, 0, 1), dn = clamp(-S.pitch / 1.5708, 0, 1);
   A.aimN.setEffectiveWeight(aim * (1 - up - dn)); A.aimU.setEffectiveWeight(aim * up); A.aimD.setEffectiveWeight(aim * dn);
   A.rel.setEffectiveWeight(r.relW);
+  if (A.roll) {
+    if (S.rollStart) { S.rollStart = false; A.roll.reset(); A.roll.timeScale = A.roll.getClip().duration / ROLL_DUR; A.roll.play(); }
+    r.rollW = damp(r.rollW || 0, S.rollT > .12 ? 1 : 0, 22, dt);
+    if (r.rollW > .002) { for (const [k, a] of Object.entries(A)) if (k !== 'roll') a.setEffectiveWeight(a.getEffectiveWeight() * (1 - r.rollW)); r.legYaw *= 1 - r.rollW; r.kick = 0; }
+    A.roll.setEffectiveWeight(r.rollW);
+  }
   if (r.mag) {
     // magazine drops out, the fresh one slides back in
     const p = S.reload > 0 ? 1 - S.reload / 1.5 : 1, out = p < .18 ? p / .18 : p < .5 ? 1 : p < .78 ? 1 - (p - .5) / .28 : 0;
@@ -6184,6 +6211,7 @@ function padPoll(dt) {
     // A: jump on foot / handbrake in the truck; B: handbrake
     const sp = (driving && b[1]) || b[0]; if (sp !== GP.space) { GP.space = sp; keys.Space = sp; }
     if (down(2)) startReload();
+    if (down(1) && !driving) inp.roll = true;
     if (down(3) && !driving) {
       if (P.weapon === 'blaster') P.weapon = 'rifle'; else if (P.blastAmmo > 0) P.weapon = 'blaster';
       setHeroWeapon(); updateAmmo(); tone('square', 420, 640, .06, .05);
@@ -6216,8 +6244,8 @@ document.body.classList.toggle('touch', TOUCH);
 $('crews').innerHTML = Object.entries(CREWS).map(([k, c]) => `<button class="crew" data-k="${k}" aria-pressed="false"><span class="sw"><i style="background:${c.jersey}"></i><i style="background:${c.trim}"></i></span><b>${c.name}</b><span class="d">${c.blurb}</span></button>`).join('');
 document.querySelectorAll('.crew').forEach(b => b.addEventListener('click', () => setCrew(b.dataset.k)));
 $('hint').innerHTML = (TOUCH
-  ? '<dl><dt>Move</dt><dd>Left thumb anywhere on the left side</dd><dt>Look</dt><dd>Right thumb drag</dd><dt>Shoot</dt><dd>Hold FIRE; drag it to aim while shooting</dd><dt>Zoom</dt><dd>ZOOM toggles the shoulder view</dd><dt>Pick up</dt><dd>Run over health, ammo and alien blasters dropped by aliens</dd><dt>Supply run</dt><dd>The truck rolls on its own: steer with the left thumb, pull back to brake. Stop in a crew’s ring to unload</dd></dl>'
-  : '<dl><dt>Move</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dd><dt>Look</dt><dd>Mouse</dd><dt>Shoot / zoom</dt><dd>Left click / right click</dd><dt>Pick up</dt><dd>Run over health, ammo and alien blasters</dd><dt>Jump</dt><dd><kbd>Space</kbd></dd><dt>Reload</dt><dd><kbd>R</kbd></dd><dt>Pause</dt><dd><kbd>Esc</kbd></dd><dt>Convoy</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive, <kbd>Space</kbd> handbrake, mouse aims the turret. Stop in a crew’s ring to unload</dd></dl>') + '<h4 class="padh">Controller</h4><dl><dt>Move / steer</dt><dd>Left stick</dd><dt>Look / turret</dt><dd>Right stick</dd><dt>Aim / shoot</dt><dd><kbd>LT</kbd> / <kbd>RT</kbd></dd><dt>Jump</dt><dd><kbd>A</kbd></dd><dt>Reload</dt><dd><kbd>X</kbd></dd><dt>Swap weapon</dt><dd><kbd>Y</kbd> rifle ↔ alien blaster</dd><dt>Handbrake</dt><dd><kbd>A</kbd> or <kbd>B</kbd> in the truck</dd><dt>Pause</dt><dd><kbd>☰</kbd> Menu</dd><dt>Menus</dt><dd>D-pad or left stick, <kbd>A</kbd> select, <kbd>B</kbd> back</dd></dl>';
+  ? '<dl><dt>Move</dt><dd>Left thumb anywhere on the left side</dd><dt>Look</dt><dd>Right thumb drag</dd><dt>Shoot</dt><dd>Hold FIRE; drag it to aim while shooting</dd><dt>Zoom</dt><dd>ZOOM toggles the shoulder view</dd><dt>Dodge</dt><dd>ROLL dives the way you’re moving; shots miss you mid-roll</dd><dt>Pick up</dt><dd>Run over health, ammo and alien blasters dropped by aliens</dd><dt>Supply run</dt><dd>The truck rolls on its own: steer with the left thumb, pull back to brake. Stop in a crew’s ring to unload</dd></dl>'
+  : '<dl><dt>Move</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dd><dt>Look</dt><dd>Mouse</dd><dt>Shoot / zoom</dt><dd>Left click / right click</dd><dt>Pick up</dt><dd>Run over health, ammo and alien blasters</dd><dt>Jump</dt><dd><kbd>Space</kbd></dd><dt>Dodge roll</dt><dd><kbd>Shift</kbd> or <kbd>C</kbd></dd><dt>Reload</dt><dd><kbd>R</kbd></dd><dt>Pause</dt><dd><kbd>Esc</kbd></dd><dt>Convoy</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive, <kbd>Space</kbd> handbrake, mouse aims the turret. Stop in a crew’s ring to unload</dd></dl>') + '<h4 class="padh">Controller</h4><dl><dt>Move / steer</dt><dd>Left stick</dd><dt>Look / turret</dt><dd>Right stick</dd><dt>Aim / shoot</dt><dd><kbd>LT</kbd> / <kbd>RT</kbd></dd><dt>Jump</dt><dd><kbd>A</kbd></dd><dt>Dodge roll</dt><dd><kbd>B</kbd></dd><dt>Reload</dt><dd><kbd>X</kbd></dd><dt>Swap weapon</dt><dd><kbd>Y</kbd> rifle ↔ alien blaster</dd><dt>Handbrake</dt><dd><kbd>A</kbd> or <kbd>B</kbd> in the truck</dd><dt>Pause</dt><dd><kbd>☰</kbd> Menu</dd><dt>Menus</dt><dd>D-pad or left stick, <kbd>A</kbd> select, <kbd>B</kbd> back</dd></dl>';
 
 $('sens').value = settings.sens; $('sensOut').textContent = (+settings.sens).toFixed(1) + '×'; $('assist').checked = !!settings.assist;
 $('sens').addEventListener('input', e => { settings.sens = +e.target.value; $('sensOut').textContent = settings.sens.toFixed(1) + '×'; saveSettings(); });
