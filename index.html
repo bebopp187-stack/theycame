@@ -4861,7 +4861,7 @@ const WCODE = ['rifle', 'blaster', 'ak', 'shotgun', 'sniper', 'rocket'];
 const GUNS = {};
 {
   const ld = new GLTFLoader();
-  for (const [k, w] of Object.entries(WPN)) ld.load(`models/guns/${w.file}.glb`, g => {
+  for (const [k, w] of Object.entries(WPN)) ld.load(`models/guns/${w.file}.json`, g => {
     g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; const m = o.material; if (m) { m.metalness = 0; m.roughness = 1; m.side = THREE.FrontSide; } } });
     GUNS[k] = g.scene;
     if (rig) setHeroWeapon();
