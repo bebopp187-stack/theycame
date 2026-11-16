@@ -736,11 +736,21 @@ function buildFacadeAtlas() {
 }
 const atlas = buildFacadeAtlas();
 const facadeMat = new THREE.MeshStandardMaterial({ map: atlas.map, roughnessMap: atlas.dat, roughness: 1, metalness: 0, emissive: new THREE.Color('#ffb066'), emissiveIntensity: 1.5 });
+// weathering: big soft blotches and rain streaks, sampled at wall scale
+const grimeTex = tex(256, 256, (g, w, h) => {
+  g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, w, h);
+  for (let k = 0; k < 90; k++) { const x = rr(0, w), y = rr(0, h), r = rr(14, 60), v = Math.random() < .6 ? 0 : 255; for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) { const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r); gr.addColorStop(0, `rgba(${v},${v},${v},.16)`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`); g.fillStyle = gr; g.fillRect(x + ox - r, y + oy - r, r * 2, r * 2); } }
+}, { srgb: false });
+const streakTex = tex(256, 64, (g, w, h) => {
+  g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+  for (let k = 0; k < 70; k++) { const x = rr(0, w), L = rr(.25, 1) * h, a = rr(.15, .7), wd = rr(1, 4); const gr = g.createLinearGradient(0, 0, 0, L); gr.addColorStop(0, `rgba(255,255,255,${a})`); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(x, 0, wd, L); }
+}, { srgb: false });
+grimeTex.anisotropy = streakTex.anisotropy = 4;
 const facadeDetail = { value: new THREE.DataTexture(new Uint8Array([210, 210, 210, 255]), 1, 1) }; facadeDetail.value.needsUpdate = true;
 facadeMat.onBeforeCompile = sh => {
-  sh.uniforms.detailMap = facadeDetail;
+  sh.uniforms.detailMap = facadeDetail; sh.uniforms.grimeMap = { value: grimeTex }; sh.uniforms.streakMap = { value: streakTex };
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 cell;\nvarying vec2 vCell;').replace('#include <uv_vertex>', '#include <uv_vertex>\nvCell = cell;');
-  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vCell;\nuniform sampler2D detailMap;')
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vCell;\nuniform sampler2D detailMap;\nuniform sampler2D grimeMap;\nuniform sampler2D streakMap;')
     .replace('#include <map_fragment>', `
       // uv.x is meters/16 along the wall, uv.y counts floors; floor 0 uses the bottom half of the cell
       vec2 fUv = vec2(fract(vMapUv.x), vMapUv.y < 1.0 ? vMapUv.y * 0.5 : 0.5 + fract(vMapUv.y) * 0.5);
@@ -749,7 +759,13 @@ facadeMat.onBeforeCompile = sh => {
       vec4 sampledDiffuseColor = textureGrad(map, aUv, aDx, aDy);
       diffuseColor *= sampledDiffuseColor;
       // stucco grain: plaster texture tiled every 2.5 m of wall
-      diffuseColor.rgb *= mix(vec3(1.0), texture(detailMap, vMapUv * vec2(6.4, 1.36)).rgb / 0.825, 0.75);`)
+      diffuseColor.rgb *= mix(vec3(1.0), texture(detailMap, vMapUv * vec2(6.4, 1.36)).rgb / 0.825, 0.75);
+      // weathering: sun-bleached and damp patches, dirt splashed up from the pavement, rain streaks under each roofline
+      float gBlot = texture(grimeMap, vMapUv * vec2(1.3, 0.31) + vCell * 3.7).r;
+      float gBase = (1.0 - smoothstep(0.0, 0.3, vMapUv.y)) * (0.55 + 0.9 * gBlot);
+      float fy = vMapUv.y < 1.0 ? vMapUv.y : fract(vMapUv.y);
+      float gStreak = texture(streakMap, vec2(vMapUv.x * 2.3 + vCell.y * 1.9, 0.1 + fy * 0.9)).r * smoothstep(0.35, 1.0, fy);
+      diffuseColor.rgb *= (0.84 + 0.32 * gBlot) * (1.0 - 0.3 * gBase) * (1.0 - 0.3 * gStreak);`)
     .replace('#include <roughnessmap_fragment>', `
       vec4 aDat = textureGrad(roughnessMap, aUv, aDx, aDy);
       float roughnessFactor = roughness * max(aDat.g, 0.05);
@@ -1772,7 +1788,10 @@ const SPN = 600;
 const spPos = new Float32Array(SPN * 3).fill(-1000), spCol = new Float32Array(SPN * 3), spVel = new Float32Array(SPN * 3), spLife = new Float32Array(SPN), spMax = new Float32Array(SPN), spBase = new Float32Array(SPN * 3);
 const spGeo = new THREE.BufferGeometry();
 spGeo.setAttribute('position', new THREE.BufferAttribute(spPos, 3)); spGeo.setAttribute('color', new THREE.BufferAttribute(spCol, 3));
-const sparks = new THREE.Points(spGeo, new THREE.PointsMaterial({ size: .14, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+const sparks = new THREE.Points(spGeo, new THREE.ShaderMaterial({ uniforms: { uScale: { value: 500 } },
+  vertexShader: `attribute vec3 color; uniform float uScale; varying vec3 vC; void main(){ vC = color; vec4 mv = modelViewMatrix * vec4(position, 1.); gl_PointSize = clamp(.22 * uScale / max(-mv.z, .5), 1.5, 42.); gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `varying vec3 vC; void main(){ vec2 d = gl_PointCoord - .5; float r = dot(d, d) * 4.; float a = exp(-r * 6.) * .6 + exp(-r * 34.); if (a < .02) discard; gl_FragColor = vec4(vC * a, a); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
 sparks.frustumCulled = false; scene.add(sparks);
 let spIdx = 0;
 function burst(p, n, color, speed, life = .5, up = 2) {
@@ -1791,12 +1810,13 @@ function updateSparks(dt) {
     if (spLife[i] <= 0) continue;
     const j = i * 3; spLife[i] -= dt;
     if (spLife[i] <= 0) { spPos[j + 1] = -1000; continue; }
-    spVel[j + 1] -= 11 * dt;
+    spVel[j + 1] -= 11 * dt; { const dr = 1 - 1.4 * dt; spVel[j] *= dr; spVel[j + 2] *= dr; }
     spPos[j] += spVel[j] * dt; spPos[j + 1] += spVel[j + 1] * dt; spPos[j + 2] += spVel[j + 2] * dt;
     if (spPos[j + 1] < .02) { spPos[j + 1] = .02; spVel[j + 1] *= -.35; spVel[j] *= .6; spVel[j + 2] *= .6; }
     const f = spLife[i] / spMax[i]; spCol[j] = spBase[j] * f; spCol[j + 1] = spBase[j + 1] * f; spCol[j + 2] = spBase[j + 2] * f;
   }
   spGeo.attributes.position.needsUpdate = true; spGeo.attributes.color.needsUpdate = true;
+  sparks.material.uniforms.uScale.value = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
 }
 const muzzleLight = new THREE.PointLight(0xffb85c, 0, 9, 2); scene.add(muzzleLight);
 const flashMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffcf7a').multiplyScalar(8), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
@@ -1811,6 +1831,192 @@ function explode(p) {
   burst(p, 60, '#d9a8ff', 9, .9, 3); burst(p, 25, '#ffb04d', 6, .6, 2);
   const d = p.distanceTo(P.pos); shake = Math.max(shake, clamp(1 - d / 40, 0, 1) * .35);
   sfxBoom(d);
+}
+
+/* ================= polish: soft smoke and dust, muzzle flash, shell casings, scorch marks, blast pushes ================= */
+// Soft puffs: one instanced batch of camera-facing smoke quads, each with its own tint, spin, growth and drift.
+// a wisp rather than a disc: several overlapping soft lobes, thin at the edges
+const puffTex = tex(128, 128, g => {
+  g.clearRect(0, 0, 128, 128);
+  for (let k = 0; k < 14; k++) { const a = rr(0, 6.28), d = k ? rr(0, 26) : 0, x = 64 + Math.cos(a) * d, y = 64 + Math.sin(a) * d, r = rr(20, 36); const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,.22)'); gr.addColorStop(.5, 'rgba(255,255,255,.1)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
+  for (let k = 0; k < 10; k++) { const x = rr(34, 94), y = rr(34, 94), r = rr(8, 18); const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(60,60,60,.16)'); gr.addColorStop(1, 'rgba(60,60,60,0)'); g.fillStyle = gr; g.globalCompositeOperation = 'source-atop'; g.fillRect(0, 0, 128, 128); }
+}, { wrap: false });
+const PUFF = { n: TOUCH ? 90 : 240, i: 0, list: [], data: null, col: null, rot: null, mesh: null, live: 0 };
+{
+  const geo = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(1, 1)); geo.instanceCount = PUFF.n;
+  PUFF.data = new THREE.InstancedBufferAttribute(new Float32Array(PUFF.n * 4), 4); PUFF.col = new THREE.InstancedBufferAttribute(new Float32Array(PUFF.n * 4), 4); PUFF.rot = new THREE.InstancedBufferAttribute(new Float32Array(PUFF.n), 1);
+  for (const a of [PUFF.data, PUFF.col, PUFF.rot]) a.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('iData', PUFF.data); geo.setAttribute('iCol', PUFF.col); geo.setAttribute('iRot', PUFF.rot);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { map: { value: puffTex }, fogColor: { value: new THREE.Color() }, fogDensity: { value: 0 }, amb: { value: new THREE.Color(1, 1, 1) } },
+    vertexShader: `attribute vec4 iData; attribute vec4 iCol; attribute float iRot; varying vec2 vUv; varying vec4 vC; varying float vD;
+      void main(){ vC = iCol; vUv = uv; float c = cos(iRot), s = sin(iRot); vec2 q = vec2(position.x * c - position.y * s, position.x * s + position.y * c);
+        vec4 mv = viewMatrix * vec4(iData.xyz, 1.0); mv.xy += q * iData.w; vD = -mv.z; gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform sampler2D map; uniform vec3 fogColor; uniform vec3 amb; uniform float fogDensity; varying vec2 vUv; varying vec4 vC; varying float vD;
+      void main(){ vec4 t = texture2D(map, vUv); float f = 1.0 - exp(-fogDensity * fogDensity * vD * vD * .55);
+        gl_FragColor = vec4(mix(vC.rgb * amb * t.rgb, fogColor, f), min(1., t.a * vC.a * 1.9) * smoothstep(.6, 3., vD)); }`,
+    transparent: true, depthWrite: false,
+  });
+  PUFF.mesh = new THREE.Mesh(geo, mat); PUFF.mesh.frustumCulled = false; PUFF.mesh.renderOrder = 3; scene.add(PUFF.mesh);
+  for (let k = 0; k < PUFF.n; k++) PUFF.list.push({ x: 0, y: -99, z: 0, vx: 0, vy: 0, vz: 0, s: 1, grow: 0, life: 0, max: 1, a: 0, rot: 0, rv: 0, r: 1, g: 1, b: 1, drag: 2 });
+}
+// o: { col: [r,g,b], a, s, grow, life, v: [x,y,z], drag, spread }
+function puff(x, y, z, o = {}) {
+  const p = PUFF.list[PUFF.i]; PUFF.i = (PUFF.i + 1) % PUFF.n;
+  const sp = o.spread || 0, c = o.col || [.62, .58, .54], v = o.v || [0, .4, 0], sh = rr(.85, 1.1);
+  p.x = x + rr(-sp, sp); p.y = y + rr(-sp, sp) * .5; p.z = z + rr(-sp, sp);
+  p.vx = v[0]; p.vy = v[1]; p.vz = v[2]; p.s = (o.s || .4) * rr(.8, 1.25); p.grow = o.grow === undefined ? 1 : o.grow;
+  p.life = p.max = (o.life || 1.2) * rr(.8, 1.2); p.a = o.a === undefined ? .5 : o.a; p.rot = rr(0, 6.28); p.rv = rr(-.8, .8);
+  p.r = c[0] * sh; p.g = c[1] * sh; p.b = c[2] * sh; p.drag = o.drag === undefined ? 2 : o.drag;
+}
+const DUST = [.66, .6, .54], SMOKE = [.2, .19, .2], GUNSMOKE = [.7, .7, .72];
+// a kick of dust where something lands or hits: a low ring that spreads and settles
+function dustKick(x, y, z, n = 5, size = .5, col = DUST, a = .4) {
+  if (Math.hypot(x - camera.position.x, z - camera.position.z) > 150) return;
+  for (let k = 0; k < n; k++) { const ang = rr(0, 6.28), sp = rr(.6, 2.2) * size * 2; puff(x, y + .15, z, { col, a, s: size * .7, grow: size * 1.6, life: 1.1 + size * .5, v: [Math.cos(ang) * sp, rr(.2, .9), Math.sin(ang) * sp], drag: 2.6, spread: size * .3 }); }
+}
+function updatePuffs(dt) {
+  const D = PUFF.data.array, C = PUFF.col.array, R = PUFF.rot.array; let live = 0;
+  for (let k = 0; k < PUFF.n; k++) {
+    const p = PUFF.list[k], j = k * 4;
+    if (p.life <= 0) { if (D[j + 1] > -50) { D[j + 1] = -99; D[j + 3] = 0; C[j + 3] = 0; } continue; }
+    live++; p.life -= dt;
+    const dr = Math.exp(-p.drag * dt); p.vx *= dr; p.vz *= dr; p.vy = p.vy * dr + .25 * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.s += p.grow * dt; p.rot += p.rv * dt;
+    if (p.y < p.s * .2) p.y = p.s * .2;
+    const f = Math.max(0, p.life / p.max), age = p.max - p.life;
+    D[j] = p.x; D[j + 1] = p.y; D[j + 2] = p.z; D[j + 3] = p.s * 2;
+    C[j] = p.r; C[j + 1] = p.g; C[j + 2] = p.b; C[j + 3] = p.a * Math.min(1, age / .07) * f * (2 - f) * (f < 1 ? 1 : 0);
+    R[k] = p.rot;
+  }
+  if (live || PUFF.live) { PUFF.data.needsUpdate = PUFF.col.needsUpdate = PUFF.rot.needsUpdate = true; }
+  PUFF.live = live;
+  const u = PUFF.mesh.material.uniforms; u.fogColor.value.copy(scene.fog.color); u.fogDensity.value = scene.fog.density;
+  // smoke takes the colour of the evening instead of glowing white
+  u.amb.value.copy(scene.fog.color).multiplyScalar(1.3).addScalar(.3);
+}
+
+// Muzzle flash: a ragged star, different every shot
+const flashTex = tex(128, 128, g => {
+  g.clearRect(0, 0, 128, 128); g.translate(64, 64);
+  const core = g.createRadialGradient(0, 0, 2, 0, 0, 40); core.addColorStop(0, 'rgba(255,255,255,1)'); core.addColorStop(.35, 'rgba(255,214,140,.75)'); core.addColorStop(1, 'rgba(255,140,40,0)');
+  g.fillStyle = core; g.beginPath(); g.arc(0, 0, 40, 0, 7); g.fill();
+  for (let k = 0; k < 7; k++) {
+    const a = k / 7 * 6.283 + rr(-.25, .25), L = rr(34, 62), w = rr(5, 10);
+    const gr = g.createLinearGradient(0, 0, Math.cos(a) * L, Math.sin(a) * L); gr.addColorStop(0, 'rgba(255,240,200,.95)'); gr.addColorStop(1, 'rgba(255,150,50,0)');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(Math.cos(a + 1.57) * w, Math.sin(a + 1.57) * w); g.lineTo(Math.cos(a) * L, Math.sin(a) * L); g.lineTo(Math.cos(a - 1.57) * w, Math.sin(a - 1.57) * w); g.closePath(); g.fill();
+  }
+}, { wrap: false });
+flash.geometry.dispose(); flash.geometry = new THREE.PlaneGeometry(1, 1);
+flashMat.map = flashTex; flashMat.color.set('#ffd9a0').multiplyScalar(5); flashMat.needsUpdate = true;
+
+// Shell casings: brass that flips out of the gun, bounces and rolls to a stop
+const CASE = { n: TOUCH ? 24 : 56, i: 0, list: [], im: null };
+{
+  CASE.im = new THREE.InstancedMesh(new THREE.CylinderGeometry(.011, .011, .05, 6), new THREE.MeshStandardMaterial({ color: '#ffffff', metalness: .85, roughness: .35 }), CASE.n);
+  CASE.im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); CASE.im.frustumCulled = false; CASE.im.castShadow = false;
+  const hide = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (let k = 0; k < CASE.n; k++) { CASE.list.push({ p: new V3(0, -50, 0), v: new V3(), r: new THREE.Euler(), w: new V3(), life: 0, s: 1, hits: 0 }); CASE.im.setMatrixAt(k, hide); CASE.im.setColorAt(k, new THREE.Color('#c9a04a')); }
+  scene.add(CASE.im);
+}
+const _csC = new THREE.Color();
+function ejectCasing(from, kind) {
+  const c = CASE.list[CASE.i], idx = CASE.i; CASE.i = (CASE.i + 1) % CASE.n;
+  const rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw), fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+  c.p.copy(from).addScaledVector(camDir, -.28); c.p.x += rx * .06; c.p.z += rz * .06;
+  const out = rr(1.6, 2.8);
+  c.v.set(rx * out - fx * rr(.2, 1) + P.vel.x, rr(2.2, 3.4), rz * out - fz * rr(.2, 1) + P.vel.z);
+  c.w.set(rr(-25, 25), rr(-25, 25), rr(-25, 25)); c.r.set(rr(0, 6), rr(0, 6), rr(0, 6)); c.life = 4.5; c.hits = 0;
+  c.s = kind === 'shotgun' ? 1.7 : kind === 'sniper' ? 1.5 : 1;
+  CASE.im.setColorAt(idx, _csC.set(kind === 'shotgun' ? '#b3261e' : '#c9a04a')); CASE.im.instanceColor.needsUpdate = true;
+}
+function updateCasings(dt) {
+  let any = false;
+  for (let k = 0; k < CASE.n; k++) {
+    const c = CASE.list[k]; if (c.life <= 0) continue; any = true; c.life -= dt;
+    const fl = .012 * c.s;
+    if (c.p.y > fl || c.v.y > 0) {
+      c.v.y -= 19 * dt; c.p.addScaledVector(c.v, dt); c.r.x += c.w.x * dt; c.r.y += c.w.y * dt; c.r.z += c.w.z * dt;
+      if (c.p.y <= fl) {
+        c.p.y = fl; c.hits++;
+        if (Math.abs(c.v.y) > 1.1) { c.v.y *= -.42; c.v.x *= .6; c.v.z *= .6; c.w.multiplyScalar(.6); if (c.hits === 1 && sfxGate('casing', .05)) tone('triangle', rr(3200, 4200), rr(2600, 3000), .035, .012); }
+        else { c.v.set(0, 0, 0); c.w.set(0, 0, 0); c.r.x = Math.PI / 2; c.r.z = 0; }
+      }
+    }
+    const sc = c.s * (c.life < .4 ? Math.max(0, c.life / .4) : 1);
+    _dbQ.setFromEuler(c.r); _dbM.compose(c.p, _dbQ, _dbS.set(sc, sc, sc)); CASE.im.setMatrixAt(k, _dbM);
+  }
+  if (any) CASE.im.instanceMatrix.needsUpdate = true;
+}
+// everything that happens at the barrel when a shot goes off
+function muzzleFX(kind) {
+  const big = kind === 'shotgun' || kind === 'rocket' || kind === 'turret';
+  flash.scale.setScalar((big ? 1.25 : kind === 'sniper' ? 1.05 : kind === 'blaster' ? .7 : .62) * rr(.8, 1.2));
+  flashMat.color.set(kind === 'blaster' ? '#ff7ae0' : '#ffd9a0').multiplyScalar(5);
+  if (kind === 'blaster') return;
+  const m = muzzleW;
+  if (kind === 'rocket') {
+    // backblast out of the tube and a cloud at the muzzle
+    for (let k = 0; k < 4; k++) puff(m.x - camDir.x * (1 + k * .25), m.y - camDir.y * (1 + k * .25), m.z - camDir.z * (1 + k * .25), { col: GUNSMOKE, a: .3, s: .22, grow: .9, life: .8, v: [-camDir.x * rr(2, 5), rr(.2, 1), -camDir.z * rr(2, 5)], drag: 4, spread: .12 });
+    for (let k = 0; k < 3; k++) puff(m.x, m.y, m.z, { col: GUNSMOKE, a: .4, s: .25, grow: 1.2, life: 1, v: [camDir.x * rr(1, 3), rr(.3, .8), camDir.z * rr(1, 3)], spread: .1 });
+    return;
+  }
+  if (kind !== 'turret') ejectCasing(m, kind);
+  const n = kind === 'shotgun' ? 4 : kind === 'sniper' ? 3 : Math.random() < .35 ? 1 : 0;
+  for (let k = 0; k < n; k++) puff(m.x + camDir.x * .15, m.y + camDir.y * .15, m.z + camDir.z * .15, { col: GUNSMOKE, a: big ? .3 : .2, s: .1, grow: big ? 1 : .6, life: big ? 1.1 : .7, v: [camDir.x * rr(.5, 3.5) + P.vel.x * .5, rr(.2, .7) + camDir.y * 2, camDir.z * rr(.5, 3.5) + P.vel.z * .5], drag: 3.5, spread: .04 });
+}
+// a round hitting the world: sparks already fly; this adds the puff of dust or plaster
+function impactFX(hp, dir) {
+  if (hp.distanceTo(camera.position) > 120) return;
+  const low = hp.y < .12;
+  for (let k = 0; k < 2; k++) puff(hp.x, hp.y, hp.z, { col: low ? DUST : [.74, .7, .66], a: .38, s: .12, grow: .9, life: .7, v: low ? [rr(-.6, .6), rr(.8, 1.8), rr(-.6, .6)] : [-dir.x * rr(.6, 2), rr(.1, .6), -dir.z * rr(.6, 2)], drag: 3, spread: .05 });
+}
+
+// Scorch marks and alien splatter left on the ground
+const DECAL = { n: TOUCH ? 10 : 22, i: 0, list: [] };
+{
+  const blot = (g, n, r0, r1, col) => { for (let k = 0; k < n; k++) { const a = rr(0, 6.28), d = rr(0, 1) ** .6 * 44, r = rr(r0, r1) * (1 - d / 70); const gr = g.createRadialGradient(64 + Math.cos(a) * d, 64 + Math.sin(a) * d, 0, 64 + Math.cos(a) * d, 64 + Math.sin(a) * d, r); gr.addColorStop(0, col(.5)); gr.addColorStop(1, col(0)); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); } };
+  const scorchTex = tex(128, 128, g => { g.clearRect(0, 0, 128, 128); blot(g, 46, 10, 30, a => `rgba(8,6,6,${a})`); for (let k = 0; k < 16; k++) { const a = rr(0, 6.28), L = rr(36, 62); g.strokeStyle = `rgba(8,6,6,${rr(.12, .3)})`; g.lineWidth = rr(1.5, 5); g.beginPath(); g.moveTo(64 + Math.cos(a) * 14, 64 + Math.sin(a) * 14); g.lineTo(64 + Math.cos(a) * L, 64 + Math.sin(a) * L); g.stroke(); } }, { wrap: false });
+  const gooTex = tex(128, 128, g => { g.clearRect(0, 0, 128, 128); blot(g, 30, 6, 20, a => `rgba(255,255,255,${a * 1.6})`); for (let k = 0; k < 22; k++) { const a = rr(0, 6.28), d = rr(28, 58); g.fillStyle = `rgba(255,255,255,${rr(.4, .9)})`; g.beginPath(); g.arc(64 + Math.cos(a) * d, 64 + Math.sin(a) * d, rr(1, 4.5), 0, 7); g.fill(); } }, { wrap: false });
+  DECAL.tex = { scorch: scorchTex, goo: gooTex };
+  const geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  for (let k = 0; k < DECAL.n; k++) {
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: scorchTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, opacity: 0 }));
+    m.visible = false; m.renderOrder = 1; scene.add(m); DECAL.list.push({ m, life: 0, max: 1, a: 1 });
+  }
+}
+function decal(x, z, size, kind = 'scorch') {
+  if (insideSolid(x, .3, z) || Math.hypot(x - camera.position.x, z - camera.position.z) > 220) return;
+  const d = DECAL.list[DECAL.i]; DECAL.i = (DECAL.i + 1) % DECAL.n;
+  d.m.material.map = DECAL.tex[kind]; d.m.material.color.set(kind === 'goo' ? '#5a1f86' : '#ffffff');
+  d.m.position.set(x, .035 + DECAL.i * .0006, z); d.m.rotation.y = rr(0, 6.28); d.m.scale.set(size, 1, size); d.m.visible = true;
+  d.life = d.max = kind === 'goo' ? 22 : 55; d.a = kind === 'goo' ? .8 : .9;
+}
+function updateDecals(dt) {
+  for (const d of DECAL.list) { if (d.life <= 0) continue; d.life -= dt; if (d.life <= 0) { d.m.visible = false; continue; } d.m.material.opacity = d.a * Math.min(1, d.life / (d.max * .3)); }
+}
+// An explosion shoves loose things outward: rubble, shell casings and you
+function blastPush(x, y, z, R, pw) {
+  for (const d of DEBRIS.list) {
+    if (d.life <= 0) continue;
+    const dx = d.p.x - x, dy = d.p.y - y + .6, dz = d.p.z - z, L = Math.hypot(dx, dy, dz); if (L > R) continue;
+    const k = pw * (1 - L / R) / Math.max(L, .5); d.v.x += dx * k; d.v.y += Math.abs(dy) * k + pw * .35 * (1 - L / R); d.v.z += dz * k; d.w.set(rr(-8, 8), rr(-8, 8), rr(-8, 8)); d.life = Math.max(d.life, 3);
+  }
+  for (const c of CASE.list) { if (c.life <= 0) continue; const dx = c.p.x - x, dz = c.p.z - z, L = Math.hypot(dx, dz); if (L > R) continue; const k = pw * (1 - L / R) / Math.max(L, .5); c.v.set(dx * k, pw * .4 * (1 - L / R), dz * k); c.w.set(rr(-20, 20), rr(-20, 20), rr(-20, 20)); }
+  if (state === 'play' && !driving && P.down <= 0) {
+    const dx = P.pos.x - x, dz = P.pos.z - z, L = Math.hypot(dx, dz, P.pos.y + 1 - y);
+    if (L < R) { const k = pw * .75 * (1 - L / R) / Math.max(Math.hypot(dx, dz), .6); P.kb.x += dx * k; P.kb.z += dz * k; if (P.ground && L < R * .6) { P.vel.y = Math.max(P.vel.y, 2.5 + pw * .2 * (1 - L / R)); P.ground = false; } }
+  }
+}
+function updatePolish(dt) { updatePuffs(dt); updateCasings(dt); updateDecals(dt); }
+function gooFX(a, size) {
+  decal(a.g.position.x + rr(-.3, .3), a.g.position.z + rr(-.3, .3), size * rr(.85, 1.2), 'goo');
+  for (let k = 0; k < 3; k++) puff(a.aim.x, a.aim.y, a.aim.z, { col: [.55, .25, .75], a: .4, s: .25, grow: 1.1, life: .8, v: [rr(-1.2, 1.2), rr(.3, 1.4), rr(-1.2, 1.2)], spread: .2 });
+}
+function clearPolish() {
+  for (const p of PUFF.list) p.life = 0;
+  for (const c of CASE.list) { c.life = 0; c.p.y = -50; } const hide = new THREE.Matrix4().makeScale(0, 0, 0); for (let k = 0; k < CASE.n; k++) CASE.im.setMatrixAt(k, hide); CASE.im.instanceMatrix.needsUpdate = true;
+  for (const d of DECAL.list) { d.life = 0; d.m.visible = false; }
 }
 
 /* ================= audio (synthesized, no files) ================= */
@@ -2135,7 +2341,7 @@ function killAlien(a, roadkill) {
   if (a.rig) { killRigged(a); return; }
   const i = aliens.indexOf(a); if (i < 0) return;
   mpKilled(a.net ? 0 : a.nid); achKill(a.brute ? 'brute' : 'bug', roadkill);
-  burst(a.aim, a.brute ? 50 : 24, '#d35cff', a.brute ? 8 : 6, .7, 2.5);
+  burst(a.aim, a.brute ? 50 : 24, '#d35cff', a.brute ? 8 : 6, .7, 2.5); gooFX(a, a.brute ? 3.4 : 1.8);
   if (a.brute) explode(a.aim.clone()); else sfxSquish(a.aim.distanceTo(P.pos));
   scene.remove(a.g); a.coreMat.dispose(); aliens.splice(i, 1);
   score += (a.brute ? 300 : 60) * Math.max(1, wave) + (roadkill ? 40 : 0); kills++;
@@ -2385,7 +2591,7 @@ function killRigged(a) {
   const i = aliens.indexOf(a); if (i < 0) return;
   mpKilled(a.net ? 0 : a.nid); achKill(a.kind);
   aliens.splice(i, 1);
-  burst(a.aim, 26, a.kind === 'merc' ? '#c69bff' : '#d35cff', 6, .7, 2.5); sfxSquish(a.aim.distanceTo(P.pos));
+  burst(a.aim, 26, a.kind === 'merc' ? '#c69bff' : '#d35cff', 6, .7, 2.5); sfxSquish(a.aim.distanceTo(P.pos)); gooFX(a, 1.9);
   for (const m of a.rig.mats) m.emissive.setRGB(0, 0, 0);
   rigPlay(a, 'Death01', .12, true);
   corpses.push({ a, t: 0 });
@@ -2950,7 +3156,7 @@ function rayWorld(o, d, tmax, withDrones = true) {
 }
 
 /* ================= player, camera, input ================= */
-const P = { wAmmo: {}, pos: PLAYER_START.clone(), vel: new V3(), yaw: -Math.PI / 2, pitch: .04, bodyYaw: -Math.PI / 2, ground: true, hp: 100, lastHurt: -99, ammo: 30, reload: 0, fireCd: 0, phase: 0, lastFire: -9 };
+const P = { wAmmo: {}, kb: new V3(), pos: PLAYER_START.clone(), vel: new V3(), yaw: -Math.PI / 2, pitch: .04, bodyYaw: -Math.PI / 2, ground: true, hp: 100, lastHurt: -99, ammo: 30, reload: 0, fireCd: 0, phase: 0, lastFire: -9 };
 let rig = null;
 let state = 'menu', wave = 0, toSpawn = 0, spawnT = 0, between = 0, score = 0, kills = 0, shake = 0, time = 0, aimT = 0, camDist = 3.1;
 let mode = 'waves', driving = false, lastLook = -9, van = null, finishFx = null, routeKey = 'haiti';
@@ -4017,7 +4223,7 @@ function updatePlayer(dt) {
   P.rollCd = (P.rollCd || 0) - dt;
   if (inp.roll && P.ground && P.rollCd <= 0 && !(P.rollT > 0)) {
     let dx = wx, dz = wz; if (Math.hypot(dx, dz) < .1) { dx = -fx; dz = -fz; }
-    const l = Math.hypot(dx, dz) || 1; P.rollDir = { x: dx / l, z: dz / l }; P.rollT = ROLL_DUR; P.rollCd = ROLL_DUR + .45; P.rollStart = true;
+    const l = Math.hypot(dx, dz) || 1; P.rollDir = { x: dx / l, z: dz / l }; P.rollT = ROLL_DUR; P.rollCd = ROLL_DUR + .45; P.rollStart = true; dustKick(P.pos.x, P.pos.y, P.pos.z, 4, .35, DUST, .3);
     P.bodyYaw = Math.atan2(-P.rollDir.x, -P.rollDir.z); playSfx('cell', { vol: .25, rate: .55 }) || tone('triangle', 200, 120, .12, .05);
   }
   inp.roll = false;
@@ -4031,9 +4237,10 @@ function updatePlayer(dt) {
   inp.jump = false;
   P.vel.y -= 19 * dt;
   P.pos.addScaledVector(P.vel, dt);
+  if (P.kb.lengthSq() > .01) { P.pos.addScaledVector(P.kb, dt); P.kb.multiplyScalar(Math.exp(-5 * dt)); }
   collide(P.pos);
   const gy = groundAt(P.pos.x, P.pos.z);
-  if (P.pos.y <= gy) { P.pos.y = gy; P.vel.y = 0; P.ground = true; }
+  if (P.pos.y <= gy) { if (!P.ground && P.vel.y < -5) dustKick(P.pos.x, gy, P.pos.z, 4, .32, DUST, .3); P.pos.y = gy; P.vel.y = 0; P.ground = true; }
   else if (P.pos.y - gy > .2) P.ground = false;
   const hs = Math.hypot(P.vel.x, P.vel.z);
   const combat = !(P.rollT > 0) && (aiming || time - P.lastFire < .6);
@@ -4085,6 +4292,7 @@ function tryFire(aiming, hs) {
   (driving ? van.muzzle : blast && rig.bmuzzle ? rig.bmuzzle : rig.muzzle).getWorldPosition(muzzleW);
   tracer(muzzleW, hp, blast ? '#ff5ad8' : null); mpShot(hp);
   flash.position.copy(muzzleW); flash.quaternion.copy(camera.quaternion); flash.rotation.z = Math.random() * 3; flash.visible = true;
+  muzzleFX(driving ? 'turret' : blast ? 'blaster' : 'rifle');
   muzzleLight.position.copy(muzzleW); muzzleLight.color.set(blast ? '#ff5ad8' : '#ffb85c'); muzzleLight.intensity = 14;
   if (hit.drone) {
     const d = hit.drone; if (d.net) netHit(d, dmg); else d.hp -= dmg; d.flash = 1; d.vel.addScaledVector(camDir, 3);
@@ -4099,7 +4307,7 @@ function tryFire(aiming, hs) {
   } else if (hit.gen) {
     const gn = hit.gen; gn.hp -= dmg; burst(hp, 14, '#ffc04d', 6, .4); showHit(); sfxHit();
     if (gn.hp <= 0) destroyBarrier(gn);
-  } else if (hit.t < 219) { burst(hp, 8, '#ffb04d', 4, .35, 1.5); sfxRic(hit.t); }
+  } else if (hit.t < 219) { burst(hp, 8, '#ffb04d', 4, .35, 1.5); impactFX(hp, camDir); sfxRic(hit.t); }
   P.pitch += (aiming ? .0035 : .006) * (blast ? 1.5 : 1); P.yaw += (Math.random() - .5) * .004;
   if (blast) { sfxBlaster(0, 1.25); if (P.blastAmmo <= 0) { P.weapon = 'rifle'; setHeroWeapon(); callout(['Blaster drained', 'Back on the rifle']); } } else sfxShot();
   updateAmmo();
@@ -4935,7 +5143,7 @@ function shotLands(hit, hp, dmg, dir, loud) {
     if (a.hp <= 0 && !a.net) killAlien(a, false);
   } else if (hit.boss) bossHit(hit.boss, hp, dmg);
   else if (hit.gen) { const gn = hit.gen; gn.hp -= dmg; burst(hp, 14, '#ffc04d', 6, .4); if (loud) { showHit(); sfxHit(); } if (gn.hp <= 0) destroyBarrier(gn); }
-  else if (hit.t < 400) { burst(hp, 8, '#ffb04d', 4, .35, 1.5); if (loud) sfxRic(hit.t); }
+  else if (hit.t < 400) { burst(hp, 8, '#ffb04d', 4, .35, 1.5); if (loud || Math.random() < .4) impactFX(hp, dir); if (loud) sfxRic(hit.t); }
 }
 // rockets: a real projectile with a smoke trail; the blast hurts everything nearby and knocks cars and houses about
 const ROCKETS = [];
@@ -4969,7 +5177,8 @@ function updateRockets(dt) {
     if (!boom && r.m.position.y < groundAt(r.m.position.x, r.m.position.z) + .1) boom = true;
     // proximity fuse, so a near miss on a drone or a running alien still counts
     if (!boom && !r.vis && (drones.some(d => d.g.position.distanceTo(r.m.position) < 2.2) || aliens.some(a => a.aim && a.aim.distanceTo(r.m.position) < 1.6))) boom = true;
-    if (Math.random() < .9) burst(r.m.position.clone(), 2, '#9a8f86', 1.2, .9, -.5);
+    puff(r.m.position.x - dir.x * .4, r.m.position.y - dir.y * .4, r.m.position.z - dir.z * .4, { col: [.8, .78, .76], a: .5, s: .16, grow: 1.1, life: 1.5, v: [-dir.x * 2 + rr(-.4, .4), rr(-.2, .5), -dir.z * 2 + rr(-.4, .4)], drag: 2.5 });
+    burst(r.m.position.clone().addScaledVector(dir, -.3), 1, '#ffb04d', 1.5, .25, 0);
     glow(r.m.position.x, r.m.position.y, r.m.position.z, 3.2, 1.6, .5, 3);
     if (boom) { rocketBlast(r.m.position.clone(), r.vis); scene.remove(r.m); ROCKETS.splice(i, 1); }
   }
@@ -4986,6 +5195,7 @@ function fireSpecial(aiming, hs) {
   origin.copy(camera.position).addScaledVector(camDir, camDist + .4);
   heroMuzzle().getWorldPosition(muzzleW);
   flash.position.copy(muzzleW); flash.quaternion.copy(camera.quaternion); flash.rotation.z = Math.random() * 3; flash.visible = true;
+  muzzleFX(k);
   muzzleLight.position.copy(muzzleW); muzzleLight.color.set(w.rocket ? '#ff9a4d' : '#ffb85c'); muzzleLight.intensity = w.rocket || k === 'shotgun' ? 26 : 16;
   if (w.rocket) {
     const aimHit = rayWorld(origin, camDir, 300), tgt = origin.clone().addScaledVector(camDir, aimHit.t);
@@ -5129,18 +5339,38 @@ function debris(x, y, z, n, colors, speed = 8, size = .5, up = 6) {
     const d = DEBRIS.list[DEBRIS.i], idx = DEBRIS.i; DEBRIS.i = (DEBRIS.i + 1) % DEBRIS.n;
     d.p.set(x + rr(-1, 1), y + rr(-.5, .5), z + rr(-1, 1)); const a = rr(0, 6.28), sp = rr(.3, 1) * speed;
     d.v.set(Math.cos(a) * sp, rr(.4, 1) * up, Math.sin(a) * sp); d.w.set(rr(-8, 8), rr(-8, 8), rr(-8, 8)); d.r.set(rr(0, 6), rr(0, 6), rr(0, 6));
-    const s = size * rr(.4, 1.3); d.s.set(s * rr(.6, 1.6), s * rr(.3, 1), s * rr(.6, 1.4)); d.life = rr(5, 9);
+    const s = size * rr(.4, 1.3); d.s.set(s * rr(.6, 1.6), s * rr(.3, 1), s * rr(.6, 1.4)); d.life = rr(5, 9); d.fl = 0; d.in = insideSolid(d.p.x, d.p.y, d.p.z);
     DEBRIS.im.setColorAt(idx, _dbC.set(colors[(Math.random() * colors.length) | 0]).multiplyScalar(rr(.55, 1)));
   }
   DEBRIS.im.instanceColor.needsUpdate = true;
 }
+// the top of whatever is standing at this spot (a roof, a parked car), or 0 for open ground
+function debrisTop(x, z) { let top = 0; forShapes(x, z, x, z, s => { if (s.y1 > top && (!s.poly || polyContains(s.poly, x, z))) top = s.y1; }); return top; }
 function updateDebris(dt) {
   let any = false;
+  // rubble lying around gets kicked by the truck, or by you at a run
+  const ksp = Math.hypot(P.vel.x, P.vel.z), kr = driving ? 2.5 : .65, kick = state === 'play' && ksp > (driving ? 2 : 3.5);
   DEBRIS.list.forEach((d, k) => {
     if (d.life <= 0) return; any = true;
     d.life -= dt;
-    if (d.p.y > d.s.y * .5 || d.v.y > 0) { d.v.y -= 20 * dt; d.p.addScaledVector(d.v, dt); d.r.x += d.w.x * dt; d.r.y += d.w.y * dt; d.r.z += d.w.z * dt; }
-    if (d.p.y < d.s.y * .5) { d.p.y = d.s.y * .5; if (Math.abs(d.v.y) > 2) { d.v.y *= -.3; d.v.x *= .6; d.v.z *= .6; d.w.multiplyScalar(.5); } else { d.v.set(0, 0, 0); d.w.set(0, 0, 0); } }
+    const h = d.s.y * .5;
+    if (d.p.y > (d.fl || 0) + h || d.v.y > 0) {
+      const px = d.p.x, py = d.p.y, pz = d.p.z;
+      d.v.y -= 20 * dt; d.p.addScaledVector(d.v, dt); d.r.x += d.w.x * dt; d.r.y += d.w.y * dt; d.r.z += d.w.z * dt;
+      const top = debrisTop(d.p.x, d.p.z), inside = top > 0 && d.p.y - h < top;
+      if (d.in) { if (!inside) d.in = false; d.fl = 0; }                                             // blown out of a wall: free until it clears the building
+      else if (inside && py - h < top - .3) { d.p.x = px; d.p.z = pz; d.v.x *= -.35; d.v.z *= -.35; d.w.multiplyScalar(.7); }   // hit a wall: bounce off it
+      else d.fl = top;                                                                                 // open ground, or a roof or car to land on
+      const fl = (d.fl || 0) + h;
+      if (d.p.y < fl) {
+        d.p.y = fl;
+        if (Math.abs(d.v.y) > 2) { if (Math.abs(d.v.y) > 7 && d.s.x > .3 && Math.random() < .5) dustKick(d.p.x, d.fl || 0, d.p.z, 1, .3, DUST, .25); d.v.y *= -.3; d.v.x *= .6; d.v.z *= .6; d.w.multiplyScalar(.5); }
+        else { d.v.set(0, 0, 0); d.w.set(0, 0, 0); }
+      }
+    } else if (kick && !(d.fl > 0)) {
+      const dx = d.p.x - P.pos.x, dz = d.p.z - P.pos.z;
+      if (dx * dx + dz * dz < kr * kr) { d.v.set(P.vel.x * rr(.5, 1) + rr(-1.5, 1.5), rr(1.5, 3) + ksp * .12, P.vel.z * rr(.5, 1) + rr(-1.5, 1.5)); d.w.set(rr(-8, 8), rr(-8, 8), rr(-8, 8)); d.life = Math.max(d.life, 2.5); }
+    }
     const sc = d.life < 1 ? Math.max(0, d.life) : 1;
     _dbQ.setFromEuler(d.r); _dbM.compose(d.p, _dbQ, _dbS.set(d.s.x * sc, d.s.y * sc, d.s.z * sc));
     DEBRIS.im.setMatrixAt(k, _dbM);
@@ -5187,7 +5417,7 @@ function smashCar(c, dir, speed) {
   const sp = Math.min(speed, 26);
   flung.push({ g, v: new V3(dir.x * sp * .85 + rr(-2, 2), 4 + sp * .28, dir.z * sp * .85 + rr(-2, 2)), w: new V3(rr(-3, 3), rr(-4, 4), rr(-3, 3)), t: 0, rest: false });
   if (flung.length > 10) { const o = flung.shift(); scene.remove(o.g); }
-  debris(c.x, .8, c.z, TOUCH ? 6 : 12, [c.col, '#202226', '#9aa3ad', '#3a3f45'], sp * .5, .35, 5);
+  debris(c.x, .8, c.z, TOUCH ? 6 : 12, [c.col, '#202226', '#9aa3ad', '#3a3f45'], sp * .5, .35, 5); dustKick(c.x, 0, c.z, 6, .8);
   burst(new V3(c.x, 1, c.z), 30, '#ffb04d', 8, .5, 2); burst(new V3(c.x, 1.2, c.z), 18, '#cfe8ff', 6, .4, 2);
   sfxCrash(.85); playSfx('impact', { vol: .4, rate: .7 }); shake = Math.max(shake, .35);
   if (Math.random() < .3) { const fx = c.x + dir.x * sp * .9, fz = c.z + dir.z * sp * .9; setTimeout(() => { ignite(fx, .6, fz, 1, 20); boomFX(fx, 0, fz, 1, 'ground'); sfxBoom(Math.hypot(fx - P.pos.x, fz - P.pos.z)); }, 900); }
@@ -5249,6 +5479,7 @@ function damageBuilding(e, x, y, z) {
   e.hp--;
   debris(x, y, z, TOUCH ? 8 : 16, [e.col, '#8a8178', '#5a524c', '#c9c0b4'], 7, .5, 5); boomFX(x, y, z, 1.5, 'air');
   ignite(x, Math.max(.5, y - 1), z, 1.1, 30);
+  for (let k = 0; k < (TOUCH ? 4 : 8); k++) puff(x, y, z, { col: [.72, .68, .63], a: .5, s: .7, grow: 1.5, life: 2.6, v: [rr(-2.5, 2.5), rr(-.5, 1.5), rr(-2.5, 2.5)], drag: 1.6, spread: 1.2 });
   const bd = Math.hypot(e.cx - camera.position.x, e.cz - camera.position.z);
   if (e.hp <= 0) { e.state = 'falling'; e.t = 0; sfxBuilding(bd); } else sfxDebris(bd * .5);
 }
@@ -5366,6 +5597,8 @@ function boomFX(x, y, z, size = 1, kind = 'ground') {
   E.ring.visible = ground; E.ring.position.y = .15;
   // flash + light + bits
   boomLight.position.set(x, Math.max(1.5, y), z); boomLight.intensity = Math.max(boomLight.intensity, 60 * size);
+  if (ground) { decal(x, z, 5.5 * E.s * rr(.85, 1.15)); dustKick(x, 0, z, TOUCH ? 4 : 9, .9 * Math.sqrt(size), DUST, .34); }
+  blastPush(x, Math.max(.3, y), z, 5.5 * Math.sqrt(size) + 1, 7 * Math.sqrt(size));
   burst(new V3(x, Math.max(.6, y), z), Math.round(30 * size), '#ffb04d', 9 * Math.sqrt(size), .7, 3);
   if (typeof debris === 'function') debris(x, Math.max(.5, y), z, Math.round((TOUCH ? 4 : 8) * Math.min(size, 2.5)), ['#2a2422', '#5a4a40', '#ff8a3a'], 7 * Math.sqrt(size), .22 * Math.sqrt(size), 6);
   E.flash = 1;
@@ -5396,7 +5629,7 @@ function startWave() { wave++; achWave(wave); P.waveHurt = false; if (mode === '
 function resetGame() {
   for (const d of drones) scene.remove(d.g); drones.length = 0;
   for (const b of bolts) scene.remove(b.m); bolts.length = 0;
-  clearAliens(); resetBoss(); clearFighters(); clearPickups(); clearRockets(); clearSupply(); resetBuildings(); MP.ents.clear(); P.down = 0; BOSS.net = null; TBEAM.energy = 0; TBEAM.on = 0; hideBeam(TBEAM.B);
+  clearAliens(); resetBoss(); clearFighters(); clearPickups(); clearRockets(); clearPolish(); P.kb.set(0, 0, 0); clearSupply(); resetBuildings(); MP.ents.clear(); P.down = 0; BOSS.net = null; TBEAM.energy = 0; TBEAM.on = 0; hideBeam(TBEAM.B);
   Object.assign(P, { hp: 100, ammo: 30, reserve: 210, weapon: 'rifle', blastAmmo: 0, wAmmo: {}, reload: 0, lastHurt: -99, yaw: -Math.PI / 2, pitch: .04, bodyYaw: -Math.PI / 2 });
   P.vel.set(0, 0, 0); goHome(MP.client && MP.hostCrew ? MP.hostCrew : crewKey); MP.placed = false;
   recRunStart();
@@ -5517,6 +5750,7 @@ function destroyBarrier(gn) { explode(gn.g.position.clone()); removeBarrier(gn);
 function clearBarriers() { while (gens.length) removeBarrier(gens[gens.length - 1]); }
 const vp0 = { x: 0, z: 0 };
 function vanPush(px, pz, r) { vp0.x = px; vp0.z = pz; const hit = resolveCircle(vp0, r, s => s.y1 < .6); push.set(vp0.x - px, 0, vp0.z - pz); return hit; }
+const VAN_PITCH = 1;
 function updateVan(dt) {
   const V = van, aiming = inp.aim || inp.aimToggle;
   // Touch: the van rolls forward on its own; left stick steers, pull back to brake
@@ -5556,6 +5790,18 @@ function updateVan(dt) {
   P.pos.copy(V.pos); P.vel.copy(fwd).multiplyScalar(V.speed);
   V.g.position.copy(V.pos); V.g.rotation.y = V.yaw + Math.PI / 2;
   V.body.rotation.x = -V.steer * sAbs * .012;
+  // weight shifts: the nose lifts under power and dives under braking; hard driving kicks dust off the rear wheels
+  const acc = (V.speed - (V.ps === undefined ? V.speed : V.ps)) / Math.max(dt, 1e-3); V.ps = V.speed;
+  V.pitch = damp(V.pitch || 0, clamp(acc * .0032, -.04, .04), 5, dt); V.body.rotation.z = V.pitch * VAN_PITCH;
+  V.dustT = (V.dustT || 0) - dt;
+  if (sAbs > 3 && V.dustT <= 0) {
+    const hard = hb && sAbs > 5 ? 1 : Math.abs(acc) > 9 ? .7 : sAbs > 14 ? .3 : 0;
+    if (hard > 0) {
+      V.dustT = .035 / hard; const side = Math.random() < .5 ? 1.05 : -1.05, sg = Math.sign(V.speed);
+      puff(V.pos.x - fwd.x * 2.4 * sg + Math.cos(V.yaw) * side, .25, V.pos.z - fwd.z * 2.4 * sg - Math.sin(V.yaw) * side,
+        { col: hb ? [.52, .52, .54] : DUST, a: .14 + .2 * hard, s: .45, grow: 1.8, life: 1.3, v: [-fwd.x * V.speed * .12 + rr(-.5, .5), rr(.3, 1), -fwd.z * V.speed * .12 + rr(-.5, .5)], drag: 2 });
+    }
+  }
   for (const fw of V.front) fw.rotation.y = -V.steer;
   for (const w of V.spin) w.rotation.z -= V.speed * dt / (V.wheelR || .45);
   if (V.turret) V.turret.rotation.y = dampAngle(V.turret.rotation.y, P.yaw - V.yaw, 10, dt);
@@ -5617,7 +5863,7 @@ function tick(dt) {
     if (WORLD) { if (MP.client) mpClientAnim(dt); else { updateDrones(dt); updateAliens(dt); updateDrops(dt); updateBoss(dt); if (CITY.room) mpClientAnim(dt, true); } updateBolts(dt); updateCorpses(dt); updateSwarm(dt); updateWarzone(dt); }
     mpTick(dt); cityTick(dt); recTick(dt);
   }
-  updateSparks(dt); updateAmb(dt); updateFX(WORLD ? dt : 0);
+  updateSparks(dt); updatePolish(dt); updateAmb(dt); updateFX(WORLD ? dt : 0);
   if (beamSplash && ship) { beamSplash.position.set(ship.position.x, .15, ship.position.z); beamSplash.visible = ship.visible && (!BOSS.shipBeam || BOSS.shipBeam.visible); }
   for (const t of tracers) if (t.visible) { t.userData.life -= dt; t.material.opacity = Math.max(0, t.userData.life / .06); if (t.userData.life <= 0) t.visible = false; }
   for (const b of booms) if (b.visible) { b.userData.t += dt; const k = b.userData.t / .5; b.scale.setScalar(.3 + k * 4); b.material.opacity = Math.max(0, 1 - k); if (k >= 1) b.visible = false; }
@@ -6531,7 +6777,7 @@ mmInit();
 frame();
 loadNPCs().then(spawnNPCs).catch(e => console.warn('Neighbors failed to load', e));
 // test hook for automated screenshots
-window.__tc = { get camera() { return camera; }, WPN, GUNS, ROCKETS, nextWeapon: () => nextWeapon(), pickupWeapon: k => pickupWeapon(k), get rig() { return rig; }, SCOPE, CINE, netHit: (a, d) => netHit(a, d), CITY, cityStart: r => cityStart(r), SFX, AMB, mpQuick: () => mpQuick(), mpHit: (i, d) => mpHit(i, d), REC, achUnlock: k => achUnlock(k), MP, mpHost: () => mpHost(), mpJoin: (c, k) => mpJoin(c, k), GP, get mode() { return mode; }, V3, LASER, TBEAM, SWARM, inp, fireLaser: (a, b, c, o) => fireLaser(a, b, c, o), dropLoot: (p, k) => dropLoot(p, k), collectLoot: k => collectLoot(k), boomFX: (x, y, z, s, k) => boomFX(x, y, z, s, k), freeSpot: (x, z, r) => freeSpot(x, z, r), rayClear: (x, z, ex, ez) => { const o = new V3(x, 2, z), d = new V3(ex - x, 0, ez - z), L = d.length(); d.divideScalar(L); return rayWorld(o, d, L, false).t >= L - 6; }, DEST, CARS, smashCar: (c, d, s) => smashCar(c, d, s), NPC, FIGHT, PICK, SUPPLY, aliens, drones, get van() { return van; }, MUSIC, initAudio: () => initAudio(), MURALS, endRun: w => endRun(w), wetPass, MENU_CAM, get time() { return time; }, freeze: v => { FROZEN = v; clock.getDelta(); }, sim: (sec, st = 1 / 30) => { for (let t = 0; t < sec; t += st) tick(st); }, render: () => composer.render(), tick, play: (m, r) => play(m, r), dtMax: v => { DT_MAX = v; }, lockPR: v => { prLock = 1; pr = v; renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); }, P, setCrew, applyMood, get state() { return state; }, get score() { return score; }, killAlien: a => killAlien(a, false), killDrone: d => killDrone(d, drones.indexOf(d)) };
+window.__tc = { PUFF, CASE, DECAL, DEBRIS, puff: (x, y, z, o) => puff(x, y, z, o), decal: (x, z, s, k) => decal(x, z, s, k), debris: (...a) => debris(...a), get camera() { return camera; }, WPN, GUNS, ROCKETS, nextWeapon: () => nextWeapon(), pickupWeapon: k => pickupWeapon(k), get rig() { return rig; }, SCOPE, CINE, netHit: (a, d) => netHit(a, d), CITY, cityStart: r => cityStart(r), SFX, AMB, mpQuick: () => mpQuick(), mpHit: (i, d) => mpHit(i, d), REC, achUnlock: k => achUnlock(k), MP, mpHost: () => mpHost(), mpJoin: (c, k) => mpJoin(c, k), GP, get mode() { return mode; }, V3, LASER, TBEAM, SWARM, inp, fireLaser: (a, b, c, o) => fireLaser(a, b, c, o), dropLoot: (p, k) => dropLoot(p, k), collectLoot: k => collectLoot(k), boomFX: (x, y, z, s, k) => boomFX(x, y, z, s, k), freeSpot: (x, z, r) => freeSpot(x, z, r), rayClear: (x, z, ex, ez) => { const o = new V3(x, 2, z), d = new V3(ex - x, 0, ez - z), L = d.length(); d.divideScalar(L); return rayWorld(o, d, L, false).t >= L - 6; }, DEST, CARS, smashCar: (c, d, s) => smashCar(c, d, s), NPC, FIGHT, PICK, SUPPLY, aliens, drones, get van() { return van; }, MUSIC, initAudio: () => initAudio(), MURALS, endRun: w => endRun(w), wetPass, MENU_CAM, get time() { return time; }, freeze: v => { FROZEN = v; clock.getDelta(); }, sim: (sec, st = 1 / 30) => { for (let t = 0; t < sec; t += st) tick(st); }, render: () => composer.render(), tick, play: (m, r) => play(m, r), dtMax: v => { DT_MAX = v; }, lockPR: v => { prLock = 1; pr = v; renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); }, P, setCrew, applyMood, get state() { return state; }, get score() { return score; }, killAlien: a => killAlien(a, false), killDrone: d => killDrone(d, drones.indexOf(d)) };
 $('play').disabled = false; $('playLbl').textContent = 'Hold the block'; $('miConvoy').disabled = false;
 menuSelect($('play'));
 </script>
