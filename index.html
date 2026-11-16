@@ -660,19 +660,22 @@ const groundMap = tex(512, 512, (g, w, h) => {
 // Facade atlas: 4x4 cells, each cell is 16 m of wall by two floors. The shader uses the bottom row for the
 // ground floor and repeats the top row for every floor above. Cells 0-7 Liberty City, 8-11 Little Haiti,
 // 12-15 Little Havana; houses get jalousie windows and a front door, commercial blocks get storefronts.
-const PASTELS = [['#f2c4ad', '#fff3e6'], ['#a7dccc', '#f4fff9'], ['#f3e3a0', '#ffffff'], ['#c4d5ef', '#f6f8ff'], ['#eeb3c3', '#fff1f5'], ['#ebe5da', '#9b8c7c'], ['#d6a47c', '#f6e8d8'], ['#b9a8dc', '#f2edff'], ['#ff8a3d', '#ffe1a8'], ['#22b8c9', '#e9fbff'], ['#f45b9a', '#fff0f6'], ['#ffd23f', '#2f6b3a'], ['#f1d6a8', '#8a3b22'], ['#e07a4f', '#fff0e0'], ['#f5e6c8', '#2f6b5a'], ['#d9a441', '#fff6e0']];
-const HOUSE_CELLS = [[0, 1, 2, 3], [8, 9], [12, 13]], SHOP_CELLS = [[4, 5, 6, 7], [10, 11], [14, 15]];
+const PASTELS = [['#f2c4ad', '#fff3e6'], ['#a7dccc', '#f4fff9'], ['#f3e3a0', '#ffffff'], ['#c4d5ef', '#f6f8ff'], ['#eeb3c3', '#fff1f5'], ['#ebe5da', '#9b8c7c'], ['#d6a47c', '#f6e8d8'], ['#b9a8dc', '#f2edff'], ['#ff8a3d', '#ffe1a8'], ['#22b8c9', '#e9fbff'], ['#f45b9a', '#fff0f6'], ['#ffd23f', '#2f6b3a'], ['#f1d6a8', '#8a3b22'], ['#e07a4f', '#fff0e0'], ['#f5e6c8', '#2f6b5a'], ['#d9a441', '#fff6e0'],
+  // 16-20 apartment blocks (Liberty x2, Haiti x2, Havana), 21-23 run-down storefronts (Liberty x2, Haiti)
+  ['#cdc3ad', '#857d70'], ['#b5aea4', '#6b6660'], ['#e3ab55', '#2a6f8f'], ['#7dbfb0', '#f6ead0'], ['#efcd98', '#a3482c'], ['#d6c9b2', '#5a5148'], ['#c3ccbc', '#7a2e2a'], ['#eea0a8', '#1f5fa8']];
+const HOUSE_CELLS = [[0, 1, 2, 3], [8, 9], [12, 13]], SHOP_CELLS = [[4, 5, 6, 7], [10, 11], [14, 15]], APT_CELLS = [[16, 17], [18, 19], [20]], RUN_CELLS = [[21, 22], [23], [14, 15]];
+const ATLAS_ROWS = 6;
 const AWNINGS = ['#c8202f', '#1f4fd1', '#0f7a5a', '#f2b632', '#6a2c8f', '#e2492f', '#1d1d22'];
 function buildFacadeAtlas() {
   const CW = 512, CHT = 256;
-  const ca = document.createElement('canvas'); ca.width = CW * 4; ca.height = CHT * 4;
-  const da = document.createElement('canvas'); da.width = CW * 4; da.height = CHT * 4;
+  const ca = document.createElement('canvas'); ca.width = CW * 4; ca.height = CHT * ATLAS_ROWS;
+  const da = document.createElement('canvas'); da.width = CW * 4; da.height = CHT * ATLAS_ROWS;
   const g = ca.getContext('2d'), d = da.getContext('2d');
   const noise = document.createElement('canvas'); noise.width = CW; noise.height = CHT;
   { const n = noise.getContext('2d'); speckle(n, CW, CHT, 9000, '0,0,0', .09); speckle(n, CW, CHT, 6000, '255,255,255', .1); }
-  const win = (cx, top, trim, house, style) => {
+  const win = (cx, top, trim, house, style, o = {}) => {
     const w = house ? 104 : 96, h = house ? 112 : 104, x = cx - w / 2, y = top + (house ? 62 : 58);
-    const lit = Math.random() < .28, bars = Math.random() < (house ? .72 : .3), ac = !house && Math.random() < .2, shut = house && Math.random() < .55;
+    const board = Math.random() < (o.board || 0), lit = !board && Math.random() < .28, bars = !board && Math.random() < (o.bars || (house ? .72 : .3)), ac = !house && !board && Math.random() < (o.ac || .2), shut = house && Math.random() < .55;
     const sg = g.createLinearGradient(0, y + h, 0, y + h + 110); sg.addColorStop(0, 'rgba(50,35,30,.22)'); sg.addColorStop(1, 'rgba(50,35,30,0)'); g.fillStyle = sg; g.fillRect(x + 6, y + h, w - 12, 110);
     if (shut) { g.fillStyle = trim; g.fillRect(x - 42, y - 4, 30, h + 8); g.fillRect(x + w + 12, y - 4, 30, h + 8); g.fillStyle = 'rgba(0,0,0,.25)'; for (let yy = y; yy < y + h; yy += 10) { g.fillRect(x - 40, yy, 26, 2); g.fillRect(x + w + 14, yy, 26, 2); } }
     g.fillStyle = trim; g.fillRect(x - 8, y - 8, w + 16, h + 18);
@@ -681,6 +684,11 @@ function buildFacadeAtlas() {
     else { g.fillStyle = trim; g.fillRect(x, y + h / 2 - 3, w, 6); g.fillRect(x + w / 2 - 3, y, 6, h); }
     d.fillStyle = 'rgb(0,150,0)'; d.fillRect(x - 8, y - 8, w + 16, h + 18);
     d.fillStyle = lit ? 'rgb(0,20,255)' : 'rgb(0,20,0)'; d.fillRect(x, y, w, h);
+    if (board) {   // plywood over a dead window
+      g.fillStyle = '#9c7a4a'; g.fillRect(x - 4, y - 4, w + 8, h + 8); g.fillStyle = 'rgba(60,40,20,.35)'; for (let yy = y + 8; yy < y + h; yy += 26) g.fillRect(x - 4, yy, w + 8, 2); g.fillRect(x + w / 2, y - 4, 2, h + 8);
+      g.fillStyle = 'rgba(40,30,20,.55)'; for (const [px, py] of [[4, 4], [w - 8, 4], [4, h - 8], [w - 8, h - 8]]) g.fillRect(x + px, y + py, 4, 4);
+      d.fillStyle = 'rgb(0,225,0)'; d.fillRect(x - 4, y - 4, w + 8, h + 8);
+    }
     if (bars) { g.fillStyle = house ? 'rgba(238,236,230,.96)' : 'rgba(30,28,30,.85)'; d.fillStyle = 'rgb(0,110,0)'; for (let xx = x + 8; xx < x + w; xx += 14) { g.fillRect(xx, y - 6, 3, h + 10); d.fillRect(xx, y, 3, h); } }
     if (ac) { g.fillStyle = '#bdb8ae'; g.fillRect(cx - 26, y + h + 10, 52, 32); g.fillStyle = '#8c877e'; for (let yy = y + h + 14; yy < y + h + 40; yy += 6) g.fillRect(cx - 22, yy, 44, 2); d.fillStyle = 'rgb(0,120,0)'; d.fillRect(cx - 26, y + h + 10, 52, 32); }
   };
@@ -693,14 +701,19 @@ function buildFacadeAtlas() {
     d.fillStyle = 'rgb(0,170,0)'; d.fillRect(x - 10, y - 10, w + 20, h + 10);
     if (Math.random() < .6) { g.fillStyle = 'rgba(25,25,28,.9)'; d.fillStyle = 'rgb(0,100,0)'; for (let xx = x + 6; xx < x + w; xx += 12) { g.fillRect(xx, y, 3, h); d.fillRect(xx, y, 3, h); } g.fillRect(x, y + h / 2, w, 4); }
   };
-  const storefront = (cx, top, trim) => {
+  const storefront = (cx, top, trim, run) => {
     const w = 216, h = 176, x = cx - w / 2, y = top + 56;
     g.fillStyle = trim; g.fillRect(x - 10, y - 10, w + 20, h + 10); d.fillStyle = 'rgb(0,150,0)'; d.fillRect(x - 10, y - 10, w + 20, h + 10);
     if (Math.random() < .5) { const aw = AWNINGS[Math.floor(Math.random() * AWNINGS.length)]; g.fillStyle = aw; g.fillRect(x - 14, top + 22, w + 28, 30); g.fillStyle = 'rgba(255,255,255,.35)'; for (let xx = x - 14; xx < x + w + 14; xx += 36) g.fillRect(xx, top + 22, 18, 30); g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(x - 14, top + 50, w + 28, 4); d.fillStyle = 'rgb(0,180,0)'; d.fillRect(x - 14, top + 22, w + 28, 32); }
-    if (Math.random() < .33) {
-      g.fillStyle = '#9ea2a6'; g.fillRect(x, y, w, h);
+    if (Math.random() < (run ? .78 : .33)) {
+      g.fillStyle = run ? '#8d8f8c' : '#9ea2a6'; g.fillRect(x, y, w, h);
       for (let yy = y; yy < y + h; yy += 8) { g.fillStyle = 'rgba(40,40,45,.5)'; g.fillRect(x, yy, w, 2); g.fillStyle = 'rgba(255,255,255,.3)'; g.fillRect(x, yy + 2, w, 1); }
       d.fillStyle = 'rgb(0,95,0)'; d.fillRect(x, y, w, h);
+      if (run) {   // rust runs and a scrawled tag on the roll-down shutter
+        for (let k = 0; k < 5; k++) { const rx = x + Math.random() * w, rg = g.createLinearGradient(0, y, 0, y + h); rg.addColorStop(0, 'rgba(120,60,25,.45)'); rg.addColorStop(1, 'rgba(120,60,25,0)'); g.fillStyle = rg; g.fillRect(rx, y, 4 + Math.random() * 10, h * (.4 + Math.random() * .6)); }
+        g.strokeStyle = ['#e23', '#1b1b1f', '#2a5fd1', '#f2f2f2'][Math.floor(Math.random() * 4)]; g.lineWidth = 5; g.lineCap = 'round'; g.beginPath(); let tx = x + 24, ty = y + h * .55; g.moveTo(tx, ty);
+        for (let k = 0; k < 9; k++) { tx += 14 + Math.random() * 12; ty = y + h * (.35 + Math.random() * .4); g.lineTo(tx, ty); } g.stroke();
+      }
     } else {
       const lit = Math.random() < .45;
       const gl = g.createLinearGradient(0, y, 0, y + h); gl.addColorStop(0, '#2c3a48'); gl.addColorStop(1, '#141a20'); g.fillStyle = gl; g.fillRect(x, y, w, h);
@@ -711,7 +724,7 @@ function buildFacadeAtlas() {
     }
   };
   PASTELS.forEach(([base, trim], i) => {
-    const ox = (i % 4) * CW, oy = (3 - Math.floor(i / 4)) * CHT, house = HOUSE_CELLS.some(l => l.includes(i));
+    const ox = (i % 4) * CW, oy = (ATLAS_ROWS - 1 - Math.floor(i / 4)) * CHT, house = HOUSE_CELLS.some(l => l.includes(i)), apt = i >= 16 && i <= 20, run = i >= 21;
     g.save(); d.save(); g.translate(ox, oy); d.translate(ox, oy);
     g.fillStyle = base; g.fillRect(0, 0, CW, CHT); g.drawImage(noise, 0, 0);
     d.fillStyle = 'rgb(0,235,0)'; d.fillRect(0, 0, CW, CHT);
@@ -721,11 +734,16 @@ function buildFacadeAtlas() {
       const gr = g.createLinearGradient(0, top + 180, 0, top + 256); gr.addColorStop(0, 'rgba(60,40,30,0)'); gr.addColorStop(1, 'rgba(60,40,30,.2)'); g.fillStyle = gr; g.fillRect(0, top + 180, 1024, 76);
       g.fillStyle = trim; g.fillRect(0, top + 244, 1024, 12); g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, top + 243, 1024, 2);
       d.fillStyle = 'rgb(0,150,0)'; d.fillRect(0, top + 244, 1024, 12);
+      if (apt || run) {
+        for (let k = 0; k < 9; k++) { const sx = Math.random() * 1024, sg = g.createLinearGradient(0, top, 0, top + 200); sg.addColorStop(0, 'rgba(50,40,35,.32)'); sg.addColorStop(1, 'rgba(50,40,35,0)'); g.fillStyle = sg; g.fillRect(sx, top, 6 + Math.random() * 26, 80 + Math.random() * 120); }
+        for (let k = 0; k < 3; k++) { g.fillStyle = `rgba(${Math.random() < .5 ? '235,228,214' : '120,112,104'},.28)`; g.fillRect(Math.random() * 960, top + 20 + Math.random() * 180, 40 + Math.random() * 90, 24 + Math.random() * 40); }
+      }
       for (let k = 0; k < 4; k++) {
         const cx = 128 + k * 256 + (Math.random() - .5) * 16;
-        if (!house && ground) storefront(cx, top, trim);
+        if (apt) { if (ground && k === 1) door(cx, top, trim); else win(cx, top, trim, false, 1, { ac: .45, bars: ground ? .85 : .25, board: i < 18 ? .14 : .06 }); }
+        else if (!house && ground) storefront(cx, top, trim, run);
         else if (house && ground && k === 2) door(cx, top, trim);
-        else win(cx, top, trim, house, i % 3);
+        else win(cx, top, trim, house, i % 3, run ? { board: .4, bars: .5 } : {});
       }
     }
     g.restore(); d.restore();
@@ -754,8 +772,8 @@ facadeMat.onBeforeCompile = sh => {
     .replace('#include <map_fragment>', `
       // uv.x is meters/16 along the wall, uv.y counts floors; floor 0 uses the bottom half of the cell
       vec2 fUv = vec2(fract(vMapUv.x), vMapUv.y < 1.0 ? vMapUv.y * 0.5 : 0.5 + fract(vMapUv.y) * 0.5);
-      vec2 aUv = (fUv * 0.992 + 0.004 + vCell) * 0.25;
-      vec2 aDx = dFdx(vMapUv) * vec2(0.25, 0.125), aDy = dFdy(vMapUv) * vec2(0.25, 0.125);
+      vec2 aUv = (fUv * 0.992 + 0.004 + vCell) * vec2(0.25, 1.0 / 6.0);
+      vec2 aDx = dFdx(vMapUv) * vec2(0.25, 0.5 / 6.0), aDy = dFdy(vMapUv) * vec2(0.25, 0.5 / 6.0);
       vec4 sampledDiffuseColor = textureGrad(map, aUv, aDx, aDy);
       diffuseColor *= sampledDiffuseColor;
       // stucco grain: plaster texture tiled every 2.5 m of wall
@@ -1020,9 +1038,9 @@ function buildWorld(M) {
   const bp = decodePolys(M.b.c, M.b.n, M.q); MAP.bldgs = bp;
   chooseDestructible(M, bp);
   bp.forEach((pl, i) => {
-    const h = M.b.h[i] / 10, house = M.b.k[i] === 1, di = M.b.d[i], n = pl.length / 2;
+    const h = M.b.h[i] / 10, kind = M.b.k[i], house = kind === 1, di = M.b.d[i], n = pl.length / 2;
     const [cx, cz] = polyCentroid(pl), DE = DEST.set.get(i), TG = name => DE ? destGB(DE, name) : tileGB(cx, cz, name);
-    const cells = house ? HOUSE_CELLS[di] : SHOP_CELLS[di], cell = cells[(i * 7 + 3) % cells.length];
+    const cells = house ? HOUSE_CELLS[di] : kind === 2 ? APT_CELLS[di] : kind === 3 ? RUN_CELLS[di] : SHOP_CELLS[di], cell = cells[(i * 7 + 3) % cells.length];
     const cxy = [cell % 4, Math.floor(cell / 4)];
     const wallH = house ? Math.max(2.8, h - 1.1) : h;
     const floors = house ? 1 : Math.max(1, Math.round(h / 3.5));
@@ -1061,7 +1079,7 @@ function buildWorld(M) {
     const bcol = addCollider({ poly: pl, y1: top });
     if (DE) { DE.col_ref = bcol; DE.top = top; DE.col = (PASTELS[cell] || ['#d8c9b8'])[0]; }
     // spray-painted tags on some walls in Liberty City and Little Haiti
-    if (SURF.graffiti && di < 2 && rnd() < .16) {
+    if (SURF.graffiti && di < 2 && rnd() < (kind >= 2 ? .5 : .16)) {
       let bk = 0, bl = 0;
       for (let k = 0; k < n; k++) { const L = Math.hypot(pl[(2 * k + 2) % pl.length] - pl[2 * k], pl[(2 * k + 3) % pl.length] - pl[2 * k + 1]); if (L > bl) { bl = L; bk = k; } }
       if (bl >= 4.5) {
