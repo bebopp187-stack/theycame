@@ -82,6 +82,10 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 .rl{grid-column:1/-1;height:4px;background:rgba(255,255,255,.14)}
 .wpn.beam{border-right-color:#7fe8ff}.wpn.beam .gun{fill:#9ff0ff;filter:drop-shadow(0 0 6px #2f7bff)}.wpn.beam em{color:#9ff0ff;font-size:18px;letter-spacing:.1em}.wpn.alien{border-right-color:#ff4fd8}.wpn.alien .gun{fill:#ff8ae6;filter:drop-shadow(0 0 6px #ff4fd8)}.wpn.alien #rlFill{background:#ff4fd8}.wpn.alien em{color:#ff8ae6;font-size:18px;letter-spacing:.1em}
 .wpn.low #ammo,.wpn.low em{color:#ff5a5a}
+.wpn.special{border-right-color:var(--wc)}.wpn.special .gun{fill:var(--wc)}.wpn.special em{color:var(--wc);font-size:16px;letter-spacing:.1em}.touch .wpn.special{border-bottom-color:var(--wc)}
+.wpn{cursor:pointer;pointer-events:auto;touch-action:none}
+#scope{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .12s;background:radial-gradient(circle at 50% 50%,transparent 0 33vmin,rgba(0,0,0,.92) 33.4vmin),linear-gradient(transparent calc(50% - .5px),rgba(0,0,0,.75) calc(50% - .5px) calc(50% + .5px),transparent 0),linear-gradient(90deg,transparent calc(50% - .5px),rgba(0,0,0,.75) calc(50% - .5px) calc(50% + .5px),transparent 0)}
+body.scoped #scope{opacity:1}body.scoped #cross{opacity:0}
 #rlFill{height:100%;width:100%;background:#7fb8ff;transform-origin:left center}
 #reloadTxt{grid-column:1/-1;font:800 12px/1 var(--cond);letter-spacing:.24em;text-transform:uppercase;color:var(--gold);text-align:right}
 #banner{position:absolute;left:0;right:0;top:20%;text-align:center;font:400 clamp(34px,6.4vw,64px)/1 'Knewave',var(--display);color:#fff;text-shadow:0 4px 0 var(--pink),0 0 34px rgba(255,45,149,.45);opacity:0;transition:opacity .4s;transform:rotate(-2deg)}
@@ -262,6 +266,7 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 <div id="game"></div>
 
 <div id="hud" hidden>
+  <div id="scope" aria-hidden="true"></div>
   <div class="obj">
     <div class="obj-h"><i class="obj-ic"></i><b id="objTitle">Invasion: Liberty City</b></div>
     <ul class="obj-l" id="objList"></ul>
@@ -2134,7 +2139,7 @@ function killAlien(a, roadkill) {
   if (a.brute) explode(a.aim.clone()); else sfxSquish(a.aim.distanceTo(P.pos));
   scene.remove(a.g); a.coreMat.dispose(); aliens.splice(i, 1);
   score += (a.brute ? 300 : 60) * Math.max(1, wave) + (roadkill ? 40 : 0); kills++;
-  maybeLoot(a.g.position, a.brute ? [['health', .4], ['ammo', .4]] : [['health', .1], ['ammo', .08]]);
+  maybeLoot(a.g.position, a.brute ? [['rocket', .25], ['health', .3], ['ammo', .3]] : [['health', .1], ['ammo', .08], ['shotgun', .02], ['sniper', .015]]);
   if (roadkill) { if (Math.random() < .4) callout(['Roadkill!', '']); }
   else if (Math.random() < .2) callout(pick(CREWS[crewKey].kills));
 }
@@ -2386,7 +2391,7 @@ function killRigged(a) {
   corpses.push({ a, t: 0 });
   score += (a.kind === 'merc' ? 260 : 120) * Math.max(1, wave); kills++;
   if (mode === 'convoy' && a.kind === 'merc' && Math.random() < .3) dropLoot(a.g.position, 'beam'); else
-  maybeLoot(a.g.position, a.kind === 'merc' ? [['blaster', .24], ['ammo', .35], ['health', .14]] : [['health', .22], ['ammo', .24]]);
+  maybeLoot(a.g.position, a.kind === 'merc' ? [['blaster', .16], ['ak', .1], ['shotgun', .08], ['sniper', .05], ['rocket', .04], ['ammo', .28], ['health', .12]] : [['health', .2], ['ammo', .22], ['ak', .03], ['shotgun', .03]]);
   if (Math.random() < .3) callout(pick(CREWS[crewKey].kills));
 }
 function updateCorpses(dt) {
@@ -2897,7 +2902,7 @@ function swarmLights() {
   }
 }
 function updateFX(dt) {
-  updateFires(dt); updateLasers(dt); updateHelis(dt); swarmLights();
+  updateFires(dt); updateLasers(dt); updateRockets(dt); updateHelis(dt); swarmLights();
   flushGlow();
 }
 
@@ -2945,7 +2950,7 @@ function rayWorld(o, d, tmax, withDrones = true) {
 }
 
 /* ================= player, camera, input ================= */
-const P = { pos: PLAYER_START.clone(), vel: new V3(), yaw: -Math.PI / 2, pitch: .04, bodyYaw: -Math.PI / 2, ground: true, hp: 100, lastHurt: -99, ammo: 30, reload: 0, fireCd: 0, phase: 0, lastFire: -9 };
+const P = { wAmmo: {}, pos: PLAYER_START.clone(), vel: new V3(), yaw: -Math.PI / 2, pitch: .04, bodyYaw: -Math.PI / 2, ground: true, hp: 100, lastHurt: -99, ammo: 30, reload: 0, fireCd: 0, phase: 0, lastFire: -9 };
 let rig = null;
 let state = 'menu', wave = 0, toSpawn = 0, spawnT = 0, between = 0, score = 0, kills = 0, shake = 0, time = 0, aimT = 0, camDist = 3.1;
 let mode = 'waves', driving = false, lastLook = -9, van = null, finishFx = null, routeKey = 'haiti';
@@ -3217,19 +3222,23 @@ function mpAvatar(R, dt) {
   } else if (!dead && R.dead) { mpDropAvatar(R); R.dead = false; return; }
   const camD = R.pos.distanceTo(camera.position);
   R.av.g.visible = camD < 220; R.av.g.position.copy(R.pos); R.av.g.rotation.y = S.bodyYaw;
-  if (R.av.blaster) { const b = p.w === 1; R.av.blaster.visible = b; if (R.av.gunMesh) R.av.gunMesh.visible = !b; }
+  const wk = WCODE[num(p.w)] || 'rifle'; if (R.av.wk !== wk || Object.keys(R.av.held || {}).length < Object.keys(GUNS).length) { R.av.wk = wk; showRigWeapon(R.av, wk); }
   if (R.av.g.visible && R.av.mixer) animateHero(dt, Math.hypot(vx, vz), p.c === 1 && !(S.rollT > 0), R.av, S);
   R.label.visible = R.av.g.visible; R.label.position.set(R.pos.x, R.pos.y + 2.25, R.pos.z);
   R.label.material.opacity = dead ? .45 : 1;
   // their shots
   const f = num(p.f, -1);
   if (R.f >= 0 && f > R.f && R.av.g.visible && !dead) {
-    (p.w === 1 && R.av.bmuzzle ? R.av.bmuzzle : R.av.muzzle).getWorldPosition(_mpM);
+    const W = WPN[wk], hm = R.av.held && R.av.held[wk];
+    (wk === 'blaster' && R.av.bmuzzle ? R.av.bmuzzle : hm && hm.g.visible ? hm.muzzle : R.av.muzzle).getWorldPosition(_mpM);
     const hx = num(p.hx, _mpM.x), hy = num(p.hy, _mpM.y), hz = num(p.hz, _mpM.z);
-    if (Math.hypot(hx - _mpM.x, hz - _mpM.z) < 260) tracer(_mpM, new V3(hx, hy, hz), p.w === 1 ? '#ff5ad8' : null);
-    R.av.kick = p.w === 1 ? 1.4 : 1;
+    if (Math.hypot(hx - _mpM.x, hz - _mpM.z) < 260) {
+      if (wk === 'rocket') fireRocket(_mpM.clone(), new V3(hx - _mpM.x, hy - _mpM.y, hz - _mpM.z).normalize(), true);
+      else tracer(_mpM, new V3(hx, hy, hz), wk === 'blaster' ? '#ff5ad8' : wk === 'sniper' ? '#bfe9ff' : null);
+    }
+    R.av.kick = wk === 'blaster' ? 1.4 : W ? 1.6 : 1;
     const d = _mpM.distanceTo(camera.position);
-    if (sfxGate('mpshot', .06)) { if (p.w === 1) sfxBlaster(d, 1.25); else playSfx('shot', { vol: .32, d, range: 140, rate: rr(.92, 1.05) }); }
+    if (sfxGate('mpshot', .06)) { if (wk === 'blaster') sfxBlaster(d, 1.25); else if (W) playSfx(W.sfx, { vol: W.vol * .6, d, range: W.rocket || wk === 'sniper' ? 220 : 150, rate: rr(.95, 1.05) }); else playSfx('shot', { vol: .32, d, range: 140, rate: rr(.92, 1.05) }); }
   }
   R.f = f;
   R.tgt.pos.copy(R.pos); R.tgt.aim.set(R.pos.x, R.pos.y + 1.3, R.pos.z); R.tgt.vel.set(vx, 0, vz); R.tgt.alive = !dead;
@@ -3237,7 +3246,7 @@ function mpAvatar(R, dt) {
 function mpSendMe() {
   const combat = inp.aim || inp.aimToggle || time - P.lastFire < .6;
   const me = { x: q10(P.pos.x) / 10, y: q10(P.pos.y) / 10, z: q10(P.pos.z) / 10, vx: q10(P.vel.x) / 10, vz: q10(P.vel.z) / 10, b: Math.round(P.bodyYaw * 100) / 100,
-    pi: Math.round(P.pitch * 100) / 100, g: P.ground ? 1 : 0, c: combat ? 1 : 0, r: P.reload > 0 ? 1 : 0, k: crewKey, w: P.weapon === 'blaster' ? 1 : 0,
+    pi: Math.round(P.pitch * 100) / 100, g: P.ground ? 1 : 0, c: combat ? 1 : 0, r: P.reload > 0 ? 1 : 0, k: crewKey, w: driving ? 0 : Math.max(0, WCODE.indexOf(P.weapon)),
     f: MP.fired, hx: q10(MP.hitP[0]) / 10, hy: q10(MP.hitP[1]) / 10, hz: q10(MP.hitP[2]) / 10, d: P.down > 0 || state === 'dead' ? 1 : 0, hp: Math.ceil(P.hp), ro: P.rollT > 0 ? 1 : 0 };
   const patch = { p: me, host: MP.host ? 1 : 0 };
   if (MP.client) patch.h = MP.hits;
@@ -3491,6 +3500,7 @@ const ACH_LIST = [
   { id: 'road', name: 'Speed Bumps', desc: 'Run over 15 aliens in one convoy run.' },
   { id: 'cars', name: 'Demolition Derby', desc: 'Smash 25 parked cars with the truck.', stat: 'cars', goal: 25 },
   { id: 'beam', name: 'Beam Me Up', desc: 'Pick up the beam cannon.' },
+  { id: 'arsenal', name: 'Shopping Spree', desc: 'Pick up a gun the invaders dropped.' },
   { id: 'coop', name: 'Squad Up', desc: 'Play a co-op game.' },
   { id: 'coopw3', name: 'Ride or Die', desc: 'Reach wave 3 together in co-op.' },
 ];
@@ -3752,7 +3762,7 @@ function netHit(a, dmg) { if (MP.client) mpHit(a.nid, dmg); else if (a.owner) ci
 function cityMeP() {
   const combat = inp.aim || inp.aimToggle || time - P.lastFire < .6;
   const p = { x: q10(P.pos.x) / 10, y: q10(P.pos.y) / 10, z: q10(P.pos.z) / 10, vx: q10(P.vel.x) / 10, vz: q10(P.vel.z) / 10, b: Math.round(P.bodyYaw * 100) / 100,
-    pi: Math.round(P.pitch * 100) / 100, g: P.ground ? 1 : 0, c: combat ? 1 : 0, r: P.reload > 0 ? 1 : 0, k: crewKey, w: P.weapon === 'blaster' ? 1 : 0, d: P.down > 0 ? 1 : 0, hp: Math.ceil(P.hp), ro: P.rollT > 0 ? 1 : 0 };
+    pi: Math.round(P.pitch * 100) / 100, g: P.ground ? 1 : 0, c: combat ? 1 : 0, r: P.reload > 0 ? 1 : 0, k: crewKey, w: driving ? 0 : Math.max(0, WCODE.indexOf(P.weapon)), d: P.down > 0 ? 1 : 0, hp: Math.ceil(P.hp), ro: P.rollT > 0 ? 1 : 0 };
   if (driving) Object.assign(p, { v: 1, yaw: Math.round(van.yaw * 100) / 100, ty: Math.round(P.yaw * 100) / 100, sp: Math.round(van.speed * 10) / 10 });
   return p;
 }
@@ -4048,7 +4058,7 @@ function updatePlayer(dt) {
   if (inp.fire) tryFire(aiming, hs);
 }
 function startReload() {
-  if (P.reload > 0 || P.ammo === 30 || P.weapon === 'blaster') return;
+  if (P.reload > 0 || P.ammo === 30 || (!driving && P.weapon !== 'rifle')) return;
   if (P.reserve <= 0 && !driving) { if (sfxGate('dry', .4)) playSfx('dry', { vol: .6 }); $('reloadTxt').textContent = 'Out of ammo'; $('reloadTxt').hidden = false; return; }
   P.reload = 1.5; padRumble(0, .25, 60); $('reloadTxt').textContent = 'Reloading'; $('reloadTxt').hidden = false; sfxReload();
 }
@@ -4057,6 +4067,7 @@ function finishReload() { const need = 30 - P.ammo, take = driving ? need : Math
 const camDir = new V3(), origin = new V3(), muzzleW = new V3();
 function tryFire(aiming, hs) {
   if (P.reload > 0 || P.fireCd > 0 || P.down > 0 || P.rollT > .15 || CINE.t < CINE.dur * .8) return;
+  if (!driving && WPN[P.weapon]) { fireSpecial(aiming, hs); return; }
   const blast = P.weapon === 'blaster' && !driving, dmg = blast ? 3 : 1;
   if (!blast && P.ammo <= 0) { startReload(); return; }
   if (blast) { P.fireCd = 1 / 6; P.blastAmmo--; } else { P.fireCd = 1 / 9.5; P.ammo--; }
@@ -4149,7 +4160,10 @@ function updateCameraCore(dt) {
   }
   const dist = driving ? lerp(8.5, 4.8, aimT) : lerp(3.1, 1.45, aimT), shoulder = driving ? lerp(0, 1, aimT) : lerp(.62, .48, aimT);
   sprFov = damp(sprFov, P.sprinting && state === 'play' ? 3 : 0, 5, dt);
-  camera.fov = lerp((driving ? 72 : 68) + sprFov, 44, aimT); camera.updateProjectionMatrix();
+  const scoped = !driving && P.weapon === 'sniper' && state === 'play';
+  camera.fov = lerp((driving ? 72 : 68) + sprFov, scoped ? WPN.sniper.zoom : 44, aimT); camera.updateProjectionMatrix();
+  const scopeOn = scoped && aimT > .7; if (scopeOn !== SCOPE.on) { SCOPE.on = scopeOn; document.body.classList.toggle('scoped', scopeOn); }
+  if (rig && !driving) rig.g.visible = !scopeOn;
   const rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
   const cp = Math.cos(P.pitch), sp = Math.sin(P.pitch);
   const dir = new V3(-Math.sin(P.yaw) * cp, sp, -Math.cos(P.yaw) * cp);
@@ -4177,9 +4191,10 @@ function updateCameraCore(dt) {
 }
 
 /* --- input --- */
-const lookSens = () => (inp.aim || inp.aimToggle ? .0014 : .0024) * settings.sens;
+const SCOPE = { on: false };
+const lookSens = () => (SCOPE.on ? .0005 : inp.aim || inp.aimToggle ? .0014 : .0024) * settings.sens;
 let lockFallback = false;
-addEventListener('keydown', e => { keys[e.code] = true; if (state === 'play') { if ((e.code === 'KeyC' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat && !driving) inp.roll = true; if (e.code === 'KeyR') startReload(); if (e.code === 'Backquote') devHop(); if (e.code === 'Backslash' && mode === 'waves' && !BOSS.active && !BOSS.dying) { wave = BOSS_WAVE - 1; toSpawn = toSpawnG = 0; startWave(); } if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault(); } });
+addEventListener('keydown', e => { keys[e.code] = true; if (state === 'play') { if ((e.code === 'KeyC' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat && !driving) inp.roll = true; if (e.code === 'KeyR') startReload(); if (e.code === 'KeyQ' && !e.repeat) nextWeapon(); if (e.code === 'Backquote') devHop(); if (e.code === 'Backslash' && mode === 'waves' && !BOSS.active && !BOSS.dying) { wave = BOSS_WAVE - 1; toSpawn = toSpawnG = 0; startWave(); } if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault(); } });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; inp.fire = inp.aim = false; });
 const cv = renderer.domElement;
@@ -4195,7 +4210,7 @@ function touchLook(t, e, mult) {
   const dx = e.clientX - t.x, dy = e.clientY - t.y; t.x = e.clientX; t.y = e.clientY;
   const now = performance.now(), dtm = Math.max(1, now - (t.tm || now - 16)); t.tm = now;
   const accel = 1 + Math.min(Math.hypot(dx, dy) / dtm * 1.4, 2);
-  const s = .0062 * settings.sens * mult * accel * (inp.aim || inp.aimToggle ? .55 : 1);
+  const s = .0062 * settings.sens * mult * accel * (SCOPE.on ? .25 : inp.aim || inp.aimToggle ? .55 : 1);
   P.yaw -= dx * s; P.pitch -= dy * s * .8; lastLook = time;
 }
 function pauseGame() {
@@ -4320,9 +4335,11 @@ function banner(main, sub) { $('banner').innerHTML = main + (sub ? `<small>${sub
 function updateAmmo() {
   const b = P.weapon === 'blaster' && !driving;
   const bm = driving && TBEAM.energy > 0;
-  $('ammo').textContent = bm ? Math.ceil(TBEAM.energy) + 's' : b ? P.blastAmmo : P.ammo; $('reserve').textContent = bm ? 'BEAM' : b ? 'ALIEN' : driving ? '∞' : P.reserve;
+  const sw = !driving && WPN[P.weapon];
+  $('ammo').textContent = bm ? Math.ceil(TBEAM.energy) + 's' : sw ? (P.wAmmo[P.weapon] || 0) : b ? P.blastAmmo : P.ammo; $('reserve').textContent = bm ? 'BEAM' : sw ? sw.short : b ? 'ALIEN' : driving ? '∞' : P.reserve;
+  document.querySelector('.wpn').classList.toggle('special', !!sw); document.querySelector('.wpn').style.setProperty('--wc', sw ? sw.css : '');
   document.querySelector('.wpn').classList.toggle('beam', bm);
-  document.querySelector('.wpn').classList.toggle('alien', b); document.querySelector('.wpn').classList.toggle('low', !b && !driving && P.reserve <= 0 && P.ammo < 10);
+  document.querySelector('.wpn').classList.toggle('alien', b); document.querySelector('.wpn').classList.toggle('low', !b && !sw && !driving && P.reserve <= 0 && P.ammo < 10);
 }
 let lastHud = '';
 let lastObj = '';
@@ -4756,6 +4773,10 @@ const LOOT = {
   ammo: { col: [3, 2.2, .4], css: '#ffc04d', label: 'Ammo' },
   blaster: { col: [3, .5, 2.6], css: '#ff4fd8', label: 'Alien blaster' },
   beam: { col: [.5, 2.4, 3.2], css: '#7fe8ff', label: 'Beam cannon' },
+  ak: { col: [3, 2.2, .7], css: '#ffcf7a', label: 'Street AK' },
+  shotgun: { col: [3, 1.4, .5], css: '#ff9a4d', label: 'Shotgun' },
+  sniper: { col: [.6, 2.4, 3.2], css: '#7fd8ff', label: 'Sniper rifle' },
+  rocket: { col: [3.2, .8, .4], css: '#ff6a4d', label: 'Rocket launcher' },
 };
 const lootMats = {
   health: new THREE.MeshStandardMaterial({ color: '#f4f2ee', roughness: .5, emissive: '#ff2a3a', emissiveIntensity: .15 }),
@@ -4786,6 +4807,10 @@ function makeLootMesh(kind) {
     const core = new THREE.Mesh(new THREE.OctahedronGeometry(.32, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color('#7fe8ff').multiplyScalar(3) })); g.add(core);
     for (let k = 0; k < 2; k++) { const r = new THREE.Mesh(new THREE.TorusGeometry(.5, .03, 6, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color('#2f7bff').multiplyScalar(3) })); r.rotation.x = k ? Math.PI / 2 : 0; r.rotation.y = k * .8; g.add(r); }
     g.scale.setScalar(1.6);
+  } else if (WPN[kind]) {
+    // the real gun, floating on its side; a crate stands in if the model hasn't loaded
+    if (GUNS[kind]) { const m = GUNS[kind].clone(true); m.scale.setScalar(1.5); m.rotation.z = -.15; g.add(m); }
+    else { g.add(new THREE.Mesh(new THREE.BoxGeometry(.9, .22, .22), lootMats.ammo)); const b = new THREE.Mesh(new THREE.BoxGeometry(.92, .06, .24), lootMats.band); g.add(b); }
   } else g.add(makeBlasterMesh(1.6));
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   return g;
@@ -4812,16 +4837,182 @@ function updatePickups(dt) {
 function collectLoot(kind) {
   if (kind === 'health') { P.hp = Math.min(100, P.hp + 35); tone('sine', 520, 880, .18, .14); callout(['+35 Health', '']); }
   else if (kind === 'ammo') { P.reserve = Math.min(AMMO_MAX, P.reserve + 60); playSfx('cell', { vol: .6 }) || tone('square', 300, 600, .1, .06); callout(['+60 Ammo', '']); }
+  else if (WPN[kind]) pickupWeapon(kind);
   else if (kind === 'beam') { achUnlock('beam'); TBEAM.energy = Math.min(30, TBEAM.energy + 12); playSfx('cell', { vol: .8, rate: .65 }); tone('sawtooth', 220, 880, .35, .08); callout(['Beam cannon', driving ? 'Hold fire to burn' : 'Mounts on the truck']); }
   else { achUnlock('blaster'); P.blastAmmo = Math.min(90, (P.weapon === 'blaster' ? P.blastAmmo : 0) + 45); P.weapon = 'blaster'; playSfx('cell', { vol: .7, rate: .8 }); callout(['Alien blaster', `${P.blastAmmo} charges`]); setHeroWeapon(); }
   updateAmmo();
 }
 function clearPickups() { for (const p of PICK.list) scene.remove(p.g); PICK.list.length = 0; }
 const AMMO_MAX = 300;
+/* ================= the arsenal: guns from the Styloo pack, dropped by the invaders ================= */
+// Each pickup gives a magazine of its own ammo; when it runs dry you're back on your rifle. Q / Y / tap the weapon
+// card cycles through what you're carrying. Models are held by the grip (just behind the trigger), barrel down -z.
+const WPN = {
+  ak: { file: 'ak47', label: 'Street AK', short: 'AK', grip: [-.025, -.073], muzzle: [.477, .035], col: [3, 2.2, .7], css: '#ffcf7a',
+    give: 90, max: 240, rate: 8.5, dmg: 1.7, pellets: 1, spread: .014, aimSpread: .004, kick: .008, range: 220, sfx: 'w_ak', vol: .55 },
+  shotgun: { file: 'shotgun', label: 'Shotgun', short: 'SHOTGUN', grip: [-.112, -.038], muzzle: [.317, .042], col: [3, 1.4, .5], css: '#ff9a4d',
+    give: 16, max: 40, rate: 1.35, dmg: 1.5, pellets: 9, spread: .085, aimSpread: .06, kick: .035, range: 42, sfx: 'w_shotgun', vol: .7, after: 'w_pump' },
+  sniper: { file: 'awp', label: 'Sniper rifle', short: 'SNIPER', grip: [-.093, -.04], muzzle: [.784, .041], col: [.6, 2.4, 3.2], css: '#7fd8ff',
+    give: 10, max: 25, rate: .8, dmg: 14, pellets: 1, spread: .02, aimSpread: 0, kick: .05, range: 420, sfx: 'w_sniper', vol: .7, after: 'w_bolt', zoom: 16 },
+  rocket: { file: 'rocketlaucher', label: 'Rocket launcher', short: 'ROCKETS', grip: [.041, -.145], muzzle: [.756, -.016], col: [3.2, .8, .4], css: '#ff6a4d',
+    give: 4, max: 10, rate: .75, rocket: true, kick: .05, sfx: 'w_rocket', vol: .75 },
+};
+const WCODE = ['rifle', 'blaster', 'ak', 'shotgun', 'sniper', 'rocket'];
+const GUNS = {};
+{
+  const ld = new GLTFLoader();
+  for (const [k, w] of Object.entries(WPN)) ld.load(`models/guns/${w.file}.glb`, g => {
+    g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; const m = o.material; if (m) { m.metalness = 0; m.roughness = 1; m.side = THREE.FrontSide; } } });
+    GUNS[k] = g.scene;
+    if (rig) setHeroWeapon();
+  }, undefined, () => {});
+}
+// a held copy of a gun, in the hand's frame: grip at the origin, barrel pointing down -z
+function makeHeldGun(k) {
+  const w = WPN[k], src = GUNS[k]; if (!src) return null;
+  const g = new THREE.Group(), inner = src.clone(true);
+  inner.rotation.y = Math.PI / 2; inner.position.set(0, -w.grip[1], w.grip[0]); g.add(inner);
+  const muzzle = new THREE.Object3D(); muzzle.position.set(0, w.muzzle[1] - w.grip[1], -(w.muzzle[0] - w.grip[0])); g.add(muzzle);
+  return { g, muzzle };
+}
+function rigEnsureGuns(r) {
+  if (!r || !r.gunMesh || !r.bones) return;
+  r.held = r.held || {};
+  for (const k of Object.keys(WPN)) {
+    if (r.held[k] || !GUNS[k]) continue;
+    const h = makeHeldGun(k); h.g.quaternion.copy(r.gunMesh.quaternion); h.g.position.copy(r.gunMesh.position); h.g.visible = false;
+    r.bones.hand_r.add(h.g); r.held[k] = h;
+  }
+}
+// which gun a hero shows: their own (from P.weapon) or another player's (from the code they send)
+function showRigWeapon(r, wk) {
+  if (!r) return;
+  rigEnsureGuns(r);
+  if (r.blaster) r.blaster.visible = wk === 'blaster';
+  for (const [k, h] of Object.entries(r.held || {})) h.g.visible = k === wk;
+  if (r.gunMesh) r.gunMesh.visible = wk === 'rifle' || (WPN[wk] && !(r.held && r.held[wk]));
+}
 function setHeroWeapon() {
-  if (!rig || !rig.blaster) return;
-  const b = P.weapon === 'blaster'; rig.blaster.visible = b; if (rig.gunMesh) rig.gunMesh.visible = !b;
-  document.querySelector('.wpn').classList.toggle('alien', b);
+  if (!rig) return;
+  showRigWeapon(rig, P.weapon);
+  const card = document.querySelector('.wpn');
+  card.classList.toggle('alien', P.weapon === 'blaster');
+  for (const k of Object.keys(WPN)) card.classList.toggle('w-' + k, P.weapon === k);
+}
+function heroMuzzle() {
+  if (driving) return van.muzzle;
+  if (P.weapon === 'blaster' && rig.bmuzzle) return rig.bmuzzle;
+  const h = rig.held && rig.held[P.weapon]; return h && h.g.visible ? h.muzzle : rig.muzzle;
+}
+// carrying: the rifle always; the blaster and pickups while they have rounds
+function carried() { return WCODE.filter(k => k === 'rifle' || (k === 'blaster' ? P.blastAmmo > 0 : (P.wAmmo[k] || 0) > 0)); }
+function nextWeapon() {
+  if (driving) return;
+  const list = carried(); if (list.length < 2) return;
+  P.weapon = list[(list.indexOf(P.weapon) + 1) % list.length]; P.fireCd = Math.max(P.fireCd, .25);
+  setHeroWeapon(); updateAmmo(); uiSfx('select', .4);
+  callout([P.weapon === 'rifle' ? 'Rifle' : P.weapon === 'blaster' ? 'Alien blaster' : WPN[P.weapon].label, '']);
+}
+function pickupWeapon(k) {
+  const w = WPN[k];
+  P.wAmmo[k] = Math.min(w.max, (P.wAmmo[k] || 0) + w.give); P.weapon = k;
+  playSfx(k === 'shotgun' ? 'w_pump' : k === 'sniper' ? 'w_bolt' : 'ui_crew', { vol: .7 });
+  callout([w.label, `${P.wAmmo[k]} ${w.rocket ? 'rockets' : 'rounds'}`]); setHeroWeapon(); achUnlock('arsenal'); updateAmmo();
+}
+function weaponDry() {
+  P.weapon = carried().includes('blaster') && P.blastAmmo > 0 ? 'blaster' : 'rifle'; setHeroWeapon();
+  callout(['Out of rounds', P.weapon === 'rifle' ? 'Back on the rifle' : 'Switching weapons']);
+}
+// one bullet or pellet landing
+function shotLands(hit, hp, dmg, dir, loud) {
+  if (hit.drone) {
+    const d = hit.drone; if (d.net) netHit(d, dmg); else d.hp -= dmg; d.flash = 1; d.vel.addScaledVector(dir, 3);
+    burst(hp, 14, '#e6b8ff', 6, .4); if (loud) { showHit(); sfxHit(); sfxImpact(hit.t * .4); }
+    if (d.hp <= 0 && !d.net) killDrone(d, drones.indexOf(d));
+  } else if (hit.alien) {
+    const a = hit.alien; if (a.net) netHit(a, dmg); else a.hp -= dmg; a.flash = 1; a.vel.addScaledVector(dir, a.brute ? .5 : 2.5 + dmg * .3);
+    burst(hp, 12, '#d35cff', 5, .4); if (loud) { showHit(); sfxHit(); }
+    if (a.hp <= 0 && !a.net) killAlien(a, false);
+  } else if (hit.boss) bossHit(hit.boss, hp, dmg);
+  else if (hit.gen) { const gn = hit.gen; gn.hp -= dmg; burst(hp, 14, '#ffc04d', 6, .4); if (loud) { showHit(); sfxHit(); } if (gn.hp <= 0) destroyBarrier(gn); }
+  else if (hit.t < 400) { burst(hp, 8, '#ffb04d', 4, .35, 1.5); if (loud) sfxRic(hit.t); }
+}
+// rockets: a real projectile with a smoke trail; the blast hurts everything nearby and knocks cars and houses about
+const ROCKETS = [];
+const rocketGeo = new THREE.CylinderGeometry(.06, .08, .5, 8).rotateX(Math.PI / 2), rocketMat = new THREE.MeshStandardMaterial({ color: '#3a3f2c', roughness: .6 });
+function fireRocket(from, dir, vis) {
+  const m = new THREE.Mesh(rocketGeo, rocketMat); m.position.copy(from); m.lookAt(from.clone().add(dir)); scene.add(m);
+  ROCKETS.push({ m, v: dir.clone().multiplyScalar(46), life: 3.5, vis });
+}
+function rocketBlast(p, vis) {
+  boomFX(p.x, p.y, p.z, 1.5, p.y < 3 ? 'ground' : 'air');
+  const d0 = p.distanceTo(camera.position);
+  playSfx('xboom' + (1 + Math.floor(Math.random() * 3)), { vol: .6, d: d0, range: 160, rate: rr(.95, 1.08) });
+  shake = Math.max(shake, clamp(1.2 - d0 / 40, 0, .8));
+  if (vis) return;
+  explode(p.clone());
+  const R = 6.5;
+  for (const a of aliens.slice()) { const d = a.aim.distanceTo(p); if (d > R) continue; const dmg = 6 + 22 * (1 - d / R); if (a.net) netHit(a, dmg); else { a.hp -= dmg; a.flash = 1; a.vel.add(a.aim.clone().sub(p).normalize().multiplyScalar(6)); if (a.hp <= 0) killAlien(a, false); } }
+  for (const d of drones.slice()) { const dd = d.g.position.distanceTo(p); if (dd > R + 1) continue; const dmg = 6 + 20 * (1 - dd / (R + 1)); if (d.net) netHit(d, dmg); else { d.hp -= dmg; d.flash = 1; if (d.hp <= 0) killDrone(d, drones.indexOf(d)); } }
+  if (BOSS.active) for (const b of bossParts()) if (b.aim.distanceTo(p) < R + b.r) bossHit(b, b.aim.clone(), 10);
+  forShapes(p.x - R, p.z - R, p.x + R, p.z + R, s => { if (s.car && !s.car.gone && Math.hypot(s.car.x - p.x, s.car.z - p.z) < R) smashCar(s.car, new V3(s.car.x - p.x, 0, s.car.z - p.z).normalize(), 18); });
+  for (const e of DEST.list) if (e.state === 'up' && Math.hypot(e.cx - p.x, e.cz - p.z) < R + 5) damageBuilding(e, p.x, Math.max(1, p.y), p.z);
+  showHit();
+}
+function updateRockets(dt) {
+  for (let i = ROCKETS.length - 1; i >= 0; i--) {
+    const r = ROCKETS[i]; r.life -= dt;
+    const step = r.v.length() * dt, dir = r.v.clone().normalize(), reach = step + .3, hit = rayWorld(r.m.position, dir, reach + 1);
+    let boom = r.life <= 0;
+    if (!boom && hit.t <= reach) { r.m.position.addScaledVector(dir, Math.max(0, hit.t - .2)); boom = true; }
+    else r.m.position.addScaledVector(r.v, dt);
+    if (!boom && r.m.position.y < groundAt(r.m.position.x, r.m.position.z) + .1) boom = true;
+    // proximity fuse, so a near miss on a drone or a running alien still counts
+    if (!boom && !r.vis && (drones.some(d => d.g.position.distanceTo(r.m.position) < 2.2) || aliens.some(a => a.aim && a.aim.distanceTo(r.m.position) < 1.6))) boom = true;
+    if (Math.random() < .9) burst(r.m.position.clone(), 2, '#9a8f86', 1.2, .9, -.5);
+    glow(r.m.position.x, r.m.position.y, r.m.position.z, 3.2, 1.6, .5, 3);
+    if (boom) { rocketBlast(r.m.position.clone(), r.vis); scene.remove(r.m); ROCKETS.splice(i, 1); }
+  }
+}
+function clearRockets() { for (const r of ROCKETS) scene.remove(r.m); ROCKETS.length = 0; }
+// firing whatever special gun is in hand
+function fireSpecial(aiming, hs) {
+  const k = P.weapon, w = WPN[k];
+  if ((P.wAmmo[k] || 0) <= 0) { weaponDry(); return; }
+  P.fireCd = 1 / w.rate; P.wAmmo[k]--; P.lastFire = time;
+  if (rig.mixer) rig.kick = w.rocket ? 2 : k === 'shotgun' || k === 'sniper' ? 1.8 : 1.1;
+  padRumble(w.rocket || k === 'shotgun' ? .7 : .25, .5, w.rocket ? 160 : 70);
+  camera.getWorldDirection(camDir);
+  origin.copy(camera.position).addScaledVector(camDir, camDist + .4);
+  heroMuzzle().getWorldPosition(muzzleW);
+  flash.position.copy(muzzleW); flash.quaternion.copy(camera.quaternion); flash.rotation.z = Math.random() * 3; flash.visible = true;
+  muzzleLight.position.copy(muzzleW); muzzleLight.color.set(w.rocket ? '#ff9a4d' : '#ffb85c'); muzzleLight.intensity = w.rocket || k === 'shotgun' ? 26 : 16;
+  if (w.rocket) {
+    const aimHit = rayWorld(origin, camDir, 300), tgt = origin.clone().addScaledVector(camDir, aimHit.t);
+    fireRocket(muzzleW.clone(), tgt.sub(muzzleW).normalize());
+    mpShot(origin.clone().addScaledVector(camDir, Math.min(aimHit.t, 60)));
+  } else {
+    // aim assist on the centre pellet only
+    const cone = settings.assist || GP.active ? (TOUCH || GP.active ? .085 : .05) : 0; let best = null, bestA = cone;
+    for (const d of targets()) { tmp.subVectors(d.aim || d.g.position, camera.position); const dist = tmp.length(); const a = Math.acos(clamp(tmp.dot(camDir) / dist, -1, 1)); if (a < bestA && dist < Math.min(w.range, d.boss ? 150 : 90)) { bestA = a; best = d; } }
+    if (best) camDir.subVectors(best.aim || best.g.position, origin).normalize();
+    const base = camDir.clone(), sp = (aiming ? w.aimSpread : w.spread) + Math.min(hs, 8) * (k === 'sniper' ? .004 : .0015);
+    let landed = false, lastHp = null;
+    for (let n = 0; n < w.pellets; n++) {
+      const d = base.clone(); d.x += (Math.random() - .5) * sp * 2; d.y += (Math.random() - .5) * sp * 2; d.z += (Math.random() - .5) * sp * 2; d.normalize();
+      const hit = rayWorld(origin, d, w.range), hp = origin.clone().addScaledVector(d, hit.t);
+      if (n < 4 || hit.alien || hit.drone) tracer(muzzleW, hp, k === 'sniper' ? '#bfe9ff' : null);
+      const counts = hit.alien || hit.drone || hit.boss || hit.gen;
+      shotLands(hit, hp, w.dmg, d, counts ? !landed : n === 0);
+      if (counts) landed = true; lastHp = hp;
+    }
+    mpShot(lastHp);
+  }
+  P.pitch += (aiming ? .5 : 1) * w.kick; P.yaw += (Math.random() - .5) * w.kick * .4;
+  playSfx(w.sfx, { vol: w.vol, rate: rr(.95, 1.05) });
+  if (w.after && P.wAmmo[k] > 0) setTimeout(() => playSfx(w.after, { vol: .55 }), k === 'sniper' ? 380 : 260);
+  if (P.wAmmo[k] <= 0) setTimeout(weaponDry, 300);
+  updateAmmo();
 }
 
 /* ================= supply run: drive the whole map and keep the crews stocked ================= */
@@ -5205,8 +5396,8 @@ function startWave() { wave++; achWave(wave); P.waveHurt = false; if (mode === '
 function resetGame() {
   for (const d of drones) scene.remove(d.g); drones.length = 0;
   for (const b of bolts) scene.remove(b.m); bolts.length = 0;
-  clearAliens(); resetBoss(); clearFighters(); clearPickups(); clearSupply(); resetBuildings(); MP.ents.clear(); P.down = 0; BOSS.net = null; TBEAM.energy = 0; TBEAM.on = 0; hideBeam(TBEAM.B);
-  Object.assign(P, { hp: 100, ammo: 30, reserve: 210, weapon: 'rifle', blastAmmo: 0, reload: 0, lastHurt: -99, yaw: -Math.PI / 2, pitch: .04, bodyYaw: -Math.PI / 2 });
+  clearAliens(); resetBoss(); clearFighters(); clearPickups(); clearRockets(); clearSupply(); resetBuildings(); MP.ents.clear(); P.down = 0; BOSS.net = null; TBEAM.energy = 0; TBEAM.on = 0; hideBeam(TBEAM.B);
+  Object.assign(P, { hp: 100, ammo: 30, reserve: 210, weapon: 'rifle', blastAmmo: 0, wAmmo: {}, reload: 0, lastHurt: -99, yaw: -Math.PI / 2, pitch: .04, bodyYaw: -Math.PI / 2 });
   P.vel.set(0, 0, 0); goHome(MP.client && MP.hostCrew ? MP.hostCrew : crewKey); MP.placed = false;
   recRunStart();
   inp.aimToggle = inp.sprint = false; $('bSprint').classList.remove('held'); $('bAim').classList.remove('held');
@@ -5272,6 +5463,7 @@ $('play').addEventListener('click', () => play('waves'));
 $('miConvoy').addEventListener('click', () => play('convoy'));
 $('switchMode').addEventListener('click', () => play(mode === 'convoy' ? 'waves' : 'convoy'));
 $('pauseBtn').addEventListener('click', pauseGame);
+document.querySelector('.wpn').addEventListener('pointerdown', e => { if (state === 'play') { e.stopPropagation(); nextWeapon(); } });
 $('again').addEventListener('click', () => { if (MP.host) { MP.rid++; MP.st = 'play'; MP.killed.length = 0; } play(); });
 $('mute').addEventListener('click', () => { muted = !muted; if (master) master.gain.value = muted ? 0 : .55; $('mute').textContent = muted ? 'OFF' : 'SND'; $('mute').setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound'); });
 
@@ -6267,7 +6459,7 @@ function padPoll(dt) {
     // movement / steering
     if (lx || ly) { inp.mx = lx; inp.my = -ly; GP.moved = true; } else if (GP.moved) { inp.mx = inp.my = 0; GP.moved = false; }
     // look: curved response so small pushes stay precise; slower while aiming
-    const aimK = inp.aim || inp.aimToggle ? .45 : 1, s = 2.7 * settings.sens * aimK;
+    const aimK = SCOPE.on ? .2 : inp.aim || inp.aimToggle ? .45 : 1, s = 2.7 * settings.sens * aimK;
     if (rx || ry) { P.yaw -= Math.sign(rx) * Math.pow(Math.abs(rx), 1.7) * s * dt; P.pitch -= Math.sign(ry) * Math.pow(Math.abs(ry), 1.7) * s * .75 * dt; lastLook = time; }
     // triggers
     if (lt !== GP.aim) { GP.aim = lt; inp.aim = lt; }
@@ -6277,8 +6469,7 @@ function padPoll(dt) {
     if (down(2)) startReload();
     if (down(1) && !driving) inp.roll = true;
     if (down(3) && !driving) {
-      if (P.weapon === 'blaster') P.weapon = 'rifle'; else if (P.blastAmmo > 0) P.weapon = 'blaster';
-      setHeroWeapon(); updateAmmo(); tone('square', 420, 640, .06, .05);
+      nextWeapon();
     }
     if (down(9) || down(8)) { pauseGame(); GP.prev = b; }
     return;
@@ -6308,8 +6499,8 @@ document.body.classList.toggle('touch', TOUCH);
 $('crews').innerHTML = Object.entries(CREWS).map(([k, c]) => `<button class="crew" data-k="${k}" aria-pressed="false"><span class="sw"><i style="background:${c.jersey}"></i><i style="background:${c.trim}"></i></span><b>${c.name}</b><span class="d">${c.blurb}</span></button>`).join('');
 document.querySelectorAll('.crew').forEach(b => b.addEventListener('click', () => { setCrew(b.dataset.k); menuSelect(b); uiSfx('crew', .5); }));
 $('hint').innerHTML = (TOUCH
-  ? '<dl><dt>Move</dt><dd>Left thumb anywhere on the left side</dd><dt>Look</dt><dd>Right thumb drag</dd><dt>Shoot</dt><dd>Hold FIRE; drag it to aim while shooting</dd><dt>Zoom</dt><dd>ZOOM toggles the shoulder view</dd><dt>Dodge</dt><dd>ROLL dives the way you’re moving; shots miss you mid-roll</dd><dt>Pick up</dt><dd>Run over health, ammo and alien blasters dropped by aliens</dd><dt>Supply run</dt><dd>The truck rolls on its own: steer with the left thumb, pull back to brake. Stop in a crew’s ring to unload</dd></dl>'
-  : '<dl><dt>Move</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dd><dt>Look</dt><dd>Mouse</dd><dt>Shoot / zoom</dt><dd>Left click / right click</dd><dt>Pick up</dt><dd>Run over health, ammo and alien blasters</dd><dt>Jump</dt><dd><kbd>Space</kbd></dd><dt>Dodge roll</dt><dd><kbd>Shift</kbd> or <kbd>C</kbd></dd><dt>Reload</dt><dd><kbd>R</kbd></dd><dt>Pause</dt><dd><kbd>Esc</kbd></dd><dt>Convoy</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive, <kbd>Space</kbd> handbrake, mouse aims the turret. Stop in a crew’s ring to unload</dd></dl>') + '<h4 class="padh">Controller</h4><dl><dt>Move / steer</dt><dd>Left stick</dd><dt>Look / turret</dt><dd>Right stick</dd><dt>Aim / shoot</dt><dd><kbd>LT</kbd> / <kbd>RT</kbd></dd><dt>Jump</dt><dd><kbd>A</kbd></dd><dt>Dodge roll</dt><dd><kbd>B</kbd></dd><dt>Reload</dt><dd><kbd>X</kbd></dd><dt>Swap weapon</dt><dd><kbd>Y</kbd> rifle ↔ alien blaster</dd><dt>Handbrake</dt><dd><kbd>A</kbd> or <kbd>B</kbd> in the truck</dd><dt>Pause</dt><dd><kbd>☰</kbd> Menu</dd><dt>Menus</dt><dd>D-pad or left stick, <kbd>A</kbd> select, <kbd>B</kbd> back</dd></dl>';
+  ? '<dl><dt>Move</dt><dd>Left thumb anywhere on the left side</dd><dt>Look</dt><dd>Right thumb drag</dd><dt>Shoot</dt><dd>Hold FIRE; drag it to aim while shooting</dd><dt>Zoom</dt><dd>ZOOM toggles the shoulder view</dd><dt>Dodge</dt><dd>ROLL dives the way you’re moving; shots miss you mid-roll</dd><dt>Pick up</dt><dd>Run over health, ammo and guns dropped by aliens; tap the weapon card to switch</dd><dt>Supply run</dt><dd>The truck rolls on its own: steer with the left thumb, pull back to brake. Stop in a crew’s ring to unload</dd></dl>'
+  : '<dl><dt>Move</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dd><dt>Look</dt><dd>Mouse</dd><dt>Shoot / zoom</dt><dd>Left click / right click</dd><dt>Pick up</dt><dd>Run over health, ammo and the guns aliens drop: AK, shotgun, sniper, rocket launcher</dd><dt>Jump</dt><dd><kbd>Space</kbd></dd><dt>Dodge roll</dt><dd><kbd>Shift</kbd> or <kbd>C</kbd></dd><dt>Reload</dt><dd><kbd>R</kbd></dd><dt>Switch weapon</dt><dd><kbd>Q</kbd> cycles the guns you’re carrying</dd><dt>Pause</dt><dd><kbd>Esc</kbd></dd><dt>Convoy</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive, <kbd>Space</kbd> handbrake, mouse aims the turret. Stop in a crew’s ring to unload</dd></dl>') + '<h4 class="padh">Controller</h4><dl><dt>Move / steer</dt><dd>Left stick</dd><dt>Look / turret</dt><dd>Right stick</dd><dt>Aim / shoot</dt><dd><kbd>LT</kbd> / <kbd>RT</kbd></dd><dt>Jump</dt><dd><kbd>A</kbd></dd><dt>Dodge roll</dt><dd><kbd>B</kbd></dd><dt>Reload</dt><dd><kbd>X</kbd></dd><dt>Swap weapon</dt><dd><kbd>Y</kbd> cycles the guns you’re carrying</dd><dt>Handbrake</dt><dd><kbd>A</kbd> or <kbd>B</kbd> in the truck</dd><dt>Pause</dt><dd><kbd>☰</kbd> Menu</dd><dt>Menus</dt><dd>D-pad or left stick, <kbd>A</kbd> select, <kbd>B</kbd> back</dd></dl>';
 
 $('sens').value = settings.sens; $('sensOut').textContent = (+settings.sens).toFixed(1) + '×'; $('assist').checked = !!settings.assist;
 $('sens').addEventListener('input', e => { settings.sens = +e.target.value; $('sensOut').textContent = settings.sens.toFixed(1) + '×'; saveSettings(); });
@@ -6340,7 +6531,7 @@ mmInit();
 frame();
 loadNPCs().then(spawnNPCs).catch(e => console.warn('Neighbors failed to load', e));
 // test hook for automated screenshots
-window.__tc = { CINE, netHit: (a, d) => netHit(a, d), CITY, cityStart: r => cityStart(r), SFX, AMB, mpQuick: () => mpQuick(), mpHit: (i, d) => mpHit(i, d), REC, achUnlock: k => achUnlock(k), MP, mpHost: () => mpHost(), mpJoin: (c, k) => mpJoin(c, k), GP, get mode() { return mode; }, V3, LASER, TBEAM, SWARM, inp, fireLaser: (a, b, c, o) => fireLaser(a, b, c, o), dropLoot: (p, k) => dropLoot(p, k), collectLoot: k => collectLoot(k), boomFX: (x, y, z, s, k) => boomFX(x, y, z, s, k), freeSpot: (x, z, r) => freeSpot(x, z, r), rayClear: (x, z, ex, ez) => { const o = new V3(x, 2, z), d = new V3(ex - x, 0, ez - z), L = d.length(); d.divideScalar(L); return rayWorld(o, d, L, false).t >= L - 6; }, DEST, CARS, smashCar: (c, d, s) => smashCar(c, d, s), NPC, FIGHT, PICK, SUPPLY, aliens, drones, get van() { return van; }, MUSIC, initAudio: () => initAudio(), MURALS, endRun: w => endRun(w), wetPass, MENU_CAM, get time() { return time; }, freeze: v => { FROZEN = v; clock.getDelta(); }, sim: (sec, st = 1 / 30) => { for (let t = 0; t < sec; t += st) tick(st); }, render: () => composer.render(), tick, play: (m, r) => play(m, r), dtMax: v => { DT_MAX = v; }, lockPR: v => { prLock = 1; pr = v; renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); }, P, setCrew, applyMood, get state() { return state; }, get score() { return score; }, killAlien: a => killAlien(a, false), killDrone: d => killDrone(d, drones.indexOf(d)) };
+window.__tc = { get camera() { return camera; }, WPN, GUNS, ROCKETS, nextWeapon: () => nextWeapon(), pickupWeapon: k => pickupWeapon(k), get rig() { return rig; }, SCOPE, CINE, netHit: (a, d) => netHit(a, d), CITY, cityStart: r => cityStart(r), SFX, AMB, mpQuick: () => mpQuick(), mpHit: (i, d) => mpHit(i, d), REC, achUnlock: k => achUnlock(k), MP, mpHost: () => mpHost(), mpJoin: (c, k) => mpJoin(c, k), GP, get mode() { return mode; }, V3, LASER, TBEAM, SWARM, inp, fireLaser: (a, b, c, o) => fireLaser(a, b, c, o), dropLoot: (p, k) => dropLoot(p, k), collectLoot: k => collectLoot(k), boomFX: (x, y, z, s, k) => boomFX(x, y, z, s, k), freeSpot: (x, z, r) => freeSpot(x, z, r), rayClear: (x, z, ex, ez) => { const o = new V3(x, 2, z), d = new V3(ex - x, 0, ez - z), L = d.length(); d.divideScalar(L); return rayWorld(o, d, L, false).t >= L - 6; }, DEST, CARS, smashCar: (c, d, s) => smashCar(c, d, s), NPC, FIGHT, PICK, SUPPLY, aliens, drones, get van() { return van; }, MUSIC, initAudio: () => initAudio(), MURALS, endRun: w => endRun(w), wetPass, MENU_CAM, get time() { return time; }, freeze: v => { FROZEN = v; clock.getDelta(); }, sim: (sec, st = 1 / 30) => { for (let t = 0; t < sec; t += st) tick(st); }, render: () => composer.render(), tick, play: (m, r) => play(m, r), dtMax: v => { DT_MAX = v; }, lockPR: v => { prLock = 1; pr = v; renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); }, P, setCrew, applyMood, get state() { return state; }, get score() { return score; }, killAlien: a => killAlien(a, false), killDrone: d => killDrone(d, drones.indexOf(d)) };
 $('play').disabled = false; $('playLbl').textContent = 'Hold the block'; $('miConvoy').disabled = false;
 menuSelect($('play'));
 </script>
