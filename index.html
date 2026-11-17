@@ -1,6 +1,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>They Came</title>
+<link rel="icon" type="image/png" href="icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Knewave&family=Barlow+Condensed:ital,wght@0,500;0,600;0,700;0,800;1,800&family=Bungee&family=Chakra+Petch:wght@500;700&family=Barlow:wght@400;500;600&display=swap">
@@ -128,7 +129,7 @@ body.scoped #scope{opacity:1}body.scoped #cross{opacity:0}
   linear-gradient(0deg,rgba(7,3,12,.9) 0%,rgba(7,3,12,0) 24%),
   linear-gradient(180deg,rgba(7,3,12,.55) 0%,rgba(7,3,12,0) 18%)}
 .tc-col{position:absolute;left:calc(max(3.6vw,16px) + env(safe-area-inset-left,0px));top:calc(max(3vh,12px) + env(safe-area-inset-top,0px));bottom:calc(var(--bar) + 12px);width:min(450px,36vw);display:flex;flex-direction:column;gap:clamp(6px,2vh,22px)}
-.tc-logo{width:100%;height:auto;max-height:44vh;overflow:visible;filter:drop-shadow(0 8px 18px rgba(0,0,0,.6));flex:0 1 auto;min-height:90px}
+.tc-logo{width:100%;height:auto;max-height:44vh;object-fit:contain;object-position:left center;filter:drop-shadow(0 8px 18px rgba(0,0,0,.6));flex:0 1 auto;min-height:90px;user-select:none}
 .tc-logo .lg{font-family:'Knewave',var(--display);letter-spacing:-2px}
 .tc-list{display:grid;gap:3px;margin-top:auto}
 .mi{appearance:none;border:0;background:transparent;display:flex;align-items:center;justify-content:space-between;width:100%;height:clamp(34px,5.5vh,52px);padding:0 16px 0 22px;font:800 clamp(19px,3.2vh,31px)/1 var(--cond);letter-spacing:.015em;text-transform:uppercase;color:#d7cfe0;text-shadow:0 2px 10px rgba(0,0,0,.7);text-align:left;position:relative;cursor:pointer;clip-path:polygon(0 0,100% 0,100% 100%,0 100%,0 72%,3px 50%,0 28%)}
@@ -308,32 +309,7 @@ body.scoped #scope{opacity:1}body.scoped #cross{opacity:0}
 <div id="menu" class="tc">
   <div class="tc-shade"></div>
   <div class="tc-col">
-    <svg class="tc-logo" viewBox="0 0 620 330" role="img" aria-label="They Came">
-      <defs>
-        <filter id="rough" x="-6%" y="-8%" width="112%" height="126%">
-          <feTurbulence type="fractalNoise" baseFrequency=".045 .11" numOctaves="2" seed="7" result="n"/>
-          <feDisplacementMap in="SourceGraphic" in2="n" scale="8" xChannelSelector="R" yChannelSelector="G"/>
-        </filter>
-        <linearGradient id="gThey" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".7" stop-color="#e4eeff"/><stop offset="1" stop-color="#9fc2ff"/></linearGradient>
-        <linearGradient id="gCame" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff6cc4"/><stop offset="1" stop-color="#ff1f84"/></linearGradient>
-      </defs>
-      <g filter="url(#rough)" transform="rotate(-8 310 165)">
-        <text x="14" y="138" class="lg" font-size="150" fill="url(#gThey)">THEY</text>
-        <text x="118" y="268" class="lg" font-size="156" fill="url(#gCame)">CAME</text>
-        <g stroke="#ff2a8c" stroke-linecap="round" fill="#ff2a8c">
-          <line x1="170" y1="250" x2="170" y2="300" stroke-width="9"/><circle cx="170" cy="302" r="7"/>
-          <line x1="246" y1="252" x2="246" y2="282" stroke-width="7"/><circle cx="246" cy="284" r="5"/>
-          <line x1="318" y1="254" x2="318" y2="318" stroke-width="10"/><circle cx="318" cy="321" r="8"/>
-          <line x1="392" y1="252" x2="392" y2="276" stroke-width="6"/>
-          <line x1="452" y1="250" x2="452" y2="296" stroke-width="8"/><circle cx="452" cy="298" r="6"/>
-          <line x1="512" y1="248" x2="512" y2="270" stroke-width="6"/>
-        </g>
-        <g stroke="#dfe9ff" stroke-linecap="round" fill="#dfe9ff">
-          <line x1="96" y1="124" x2="96" y2="150" stroke-width="6"/><circle cx="96" cy="152" r="4.5"/>
-          <line x1="262" y1="126" x2="262" y2="142" stroke-width="5"/>
-        </g>
-      </g>
-    </svg>
+    <img class="tc-logo" src="logo.webp" alt="They Came" width="1100" height="773" draggable="false">
     <nav class="tc-list" id="mList" aria-label="Main menu">
       <button class="mi" data-sub="subCrew" data-desc="Pick who you roll with. Your crew decides which part of town you defend."><span>Crew</span><i></i></button>
       <button class="mi sel" id="play" data-desc="Hold your block against wave after wave. The mothership comes down on wave 5." disabled><span id="playLbl">Loading the block…</span><i></i></button>
